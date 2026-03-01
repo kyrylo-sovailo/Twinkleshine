@@ -1,0 +1,5 @@
+@DEV_FILE_NAME@ (@DEV_VERSION@) experimental; urgency=medium
+
+  * Initial commit
+
+ -- @DEV_AUTHOR@ <@DEV_EMAIL@>  @DEV_TIMESTAMP@ +0000
