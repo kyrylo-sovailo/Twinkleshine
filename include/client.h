@@ -15,10 +15,12 @@ struct Client
 
 DECLARE_BUFFER(struct Client, ClientBuffer)
 DECLARE_BUFFER_RESIZE(struct Client, ClientBuffer, clients_)
+DECLARE_BUFFER_APPEND(struct Client, ClientBuffer, clients_)
 DECLARE_BUFFER_FINALIZE(struct Client, ClientBuffer, clients_)
 
 DECLARE_BUFFER(struct pollfd, PollBuffer)
 DECLARE_BUFFER_RESIZE(struct pollfd, PollBuffer, polls_)
+DECLARE_BUFFER_APPEND(struct pollfd, PollBuffer, polls_)
 DECLARE_BUFFER_FINALIZE(struct pollfd, PollBuffer, polls_)
 
 #endif

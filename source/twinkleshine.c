@@ -8,59 +8,81 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/ioctl.h>
+#include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <string.h>
+static struct Error *create_listening_sockets(struct PollBuffer *polls) NODISCARD;
+static struct Error *create_listening_sockets(struct PollBuffer *polls)
+{
+    struct Error *error = OK;
+    struct pollfd new_poll = { -1, POLLIN, 0 };
+    struct sockaddr_in socket_address;
+
+    new_poll.fd = socket(AF_INET, SOCK_STREAM, 0);
+    AGOTO0(new_poll.fd >= 0, "socket() failed");
+
+    socket_address.sin_family = AF_INET;
+    socket_address.sin_addr.s_addr = INADDR_ANY;
+    socket_address.sin_port = htons(8000);
+    AGOTO0(bind(new_poll.fd, (struct sockaddr*)&socket_address, sizeof(socket_address)) >= 0, "bind() failed");
+    AGOTO0(listen(new_poll.fd, 10) >= 0, "listed() failed");
+    PGOTO(polls_append(polls, &new_poll, 1));
+    return OK;
+
+    failure:
+    if (new_poll.fd >= 0) close(new_poll.fd);
+    return error;
+}
+
+static struct Error *accept_new_connections(struct ClientBuffer *clients, struct PollBuffer *polls) NODISCARD;
+static struct Error *accept_new_connections(struct ClientBuffer *clients, struct PollBuffer *polls)
+{
+    struct Error *error = OK;
+    struct Client new_client = { 0 };
+    struct pollfd new_poll = { -1, POLLIN | POLLHUP | POLLERR, 0 };
+    socklen_t socket_address_size;
+
+    if ((polls->p[0].revents & POLLIN) == 0) return OK;
+
+    socket_address_size = sizeof(new_client.address);
+    new_poll.fd = accept(polls->p[0].fd, (struct sockaddr*)&new_client.address, &socket_address_size);
+    AGOTO0(new_poll.fd >= 0, "accept() failed"); /* TODO: not fatal */
+    AGOTO0(fcntl(new_poll.fd, F_SETFL, O_NONBLOCK) >= 0, "fcntl() failed"); /* TODO: not fatal */
+    PGOTO(clients_append(clients, &new_client, 1));
+    PGOTO(polls_append(polls, &new_poll, 1));
+    return OK;
+
+    failure:
+    if (new_poll.fd >= 0) close(new_poll.fd);
+    return error;
+}
 
 static struct Error *server_main(int argc, char **argv) NODISCARD;
 static struct Error *server_main(int argc, char **argv)
 {
     struct Error *error = OK;
-    struct sockaddr_in socket_address = { 0 };
-    socklen_t socket_address_size;
-    struct CharBuffer input_buffer = { 0 }, output_buffer = { 0 };
-    struct Response intermediate_buffer = { 0 };
     struct ClientBuffer clients = { 0 };
     struct PollBuffer polls = { 0 };
+    struct CharBuffer input_buffer = { 0 }, output_buffer = { 0 };
+    struct Response intermediate_buffer = { 0 };
     struct Client *client_i, *surviving_client_i;
     struct pollfd *poll_i, *surviving_poll_i;
     (void)argc;
     (void)argv;
 
     /* Create socket */
-    PGOTO(polls_resize(&polls, 1));
-    polls.p[0].events = POLLIN;
-    polls.p[0].fd = socket(AF_INET, SOCK_STREAM, 0);
-    AGOTO0(polls.p[0].fd >= 0, "socket() failed");
-    socket_address.sin_family = AF_INET;
-    socket_address.sin_addr.s_addr = INADDR_ANY;
-    socket_address.sin_port = htons(8000);
-    socket_address_size = sizeof(socket_address);
-    AGOTO0(bind(polls.p[0].fd, (struct sockaddr*)&socket_address, socket_address_size) >= 0, "bind() failed");
-    AGOTO0(listen(polls.p[0].fd, 10) >= 0, "listed() failed");
+    PGOTO(create_listening_sockets(&polls));
     
     /* Loop */
     while (true)
     {
+        /* Waiting */
         int event_number = poll(polls.p, polls.size, -1);
         AGOTO0(event_number >= 0, "poll() failed");
 
-        /* Accepting new connections */
-        if ((polls.p[0].revents & POLLIN) != 0)
-        {
-            socket_address_size = sizeof(client_i->address);
-            PGOTO(clients_resize(&clients, clients.size + 1));
-            client_i = &clients.p[clients.size - 1];
-            memset(client_i, 0, sizeof(*clients.p));
-            PGOTO(polls_resize(&polls, polls.size + 1));
-            poll_i = &polls.p[polls.size - 1];
-            poll_i->events = POLLIN | POLLHUP | POLLERR;
-            poll_i->revents = 0;
-            poll_i->fd = accept(polls.p[0].fd, (struct sockaddr*)&client_i->address, &socket_address_size);
-            AGOTO0(poll_i->fd >= 0, "accept() failed"); /* TODO: not critical */
-            AGOTO0(fcntl(poll_i->fd, F_SETFL, O_NONBLOCK) >= 0, "fcntl() failed");
-        }
+        /*Accepting connections */
+        PGOTO(accept_new_connections(&clients, &polls));
 
         /* Processing connections */
         for (surviving_client_i = client_i = clients.p, surviving_poll_i = poll_i = polls.p + 1; client_i < clients.p + clients.size; client_i++, poll_i++)
@@ -113,7 +135,7 @@ static struct Error *server_main(int argc, char **argv)
         }
     }
 
-    finalize:
+    failure:
     for (client_i = clients.p; client_i < clients.p + clients.size; client_i++) char_buffer_finalize(&client_i->parser.request.data);
     for (poll_i = polls.p; poll_i < polls.p + polls.size; poll_i++) { if (poll_i->fd != -1) close(poll_i->fd); }
     clients_finalize(&clients);

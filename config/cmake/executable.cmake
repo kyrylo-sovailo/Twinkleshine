@@ -6,7 +6,7 @@
 devtemplate_add_executable(twinkleshine)
 list(APPEND DEV_EXPORT_TARGETS twinkleshine)
 list(APPEND DEV_CORE_TARGETS twinkleshine)
-set_target_properties(twinkleshine PROPERTIES OUTPUT_NAME "$twinkleshine$<$<CONFIG:Debug>:-debug>")
+set_target_properties(twinkleshine PROPERTIES OUTPUT_NAME "twinkleshine$<$<CONFIG:Debug>:-debug>")
 
 # Define twinkleshine sources
 devtemplate_target_sources(twinkleshine PRIVATE

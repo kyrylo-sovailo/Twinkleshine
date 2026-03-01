@@ -48,7 +48,7 @@ bool value_parse_comma(const char *a_buffer, struct Value *a, struct Value *resu
     else
     {
         result->offset = a->offset;
-        result->length = found - a_buffer;
+        result->length = (size_t)(found - a_buffer);
         a->offset += result->length + 1;
         a->length -= result->length + 1;
     }
@@ -89,7 +89,7 @@ bool value_to_uint(const char *buffer, struct Value *a, unsigned int *result)
         if (local_result >= (UINT_MAX - 9) / 10) return false; /* Number too big */
         c = buffer[offset];
         if (!(c >= '0' && c <= '9')) return false;
-        local_result = 10 * local_result + (c - '0');
+        local_result = 10 * local_result + (unsigned int)(c - '0');
     }
     if (result != NULL) *result = local_result;
     return true;
