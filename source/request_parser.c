@@ -1,4 +1,5 @@
 #include "../include/request_parser.h"
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -76,13 +77,24 @@ static struct Error *parse_name_value(struct RequestParser *parser)
     return OK;
 }
 
-static struct Error *parse_request_window(struct RequestParser *parser, const struct RingConstWindow *window, size_t *offset)
+struct Error *parse_request(struct RequestParser *parser, const struct CharBuffer *buffer, size_t *buffer_used)
 {
-    size_t window_offset, available_content;
-    for (window_offset = 0; window_offset < window->size; window_offset++, (*offset)++)
+    /*
+    parse_request() relies on the fact that the algorithm will keep feeding the buffer, processing, sending, and feeding again 
+    until the buffer is all used. Therefore no ring structures are needed.
+    It may change if output throttling or another limiting mechanism is needed.
+    In which case return to initial commit and see how rings were implemented.
+    */
+    const size_t initial_buffer_used = *buffer_used, initial_offset = parser->request.data.size;
+    size_t offset;
+    
+    if (!character_map_initialized) { initialize_character_map(); character_map_initialized = true; }
+
+    for (offset = initial_offset; *buffer_used < buffer->size; (*buffer_used)++, offset++)
     {
-        const char c = window->p[window_offset];
+        const char c = buffer->p[*buffer_used];
         const unsigned char c_type = character_map[(unsigned char)c];
+        size_t available_content;
         switch (parser->state)
         {
         case RPS_WAIT_METHOD_BEGIN:
@@ -92,7 +104,7 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
             }
             else if ((c_type & CM_METHOD) != 0)
             {
-                parser->request.method.offset = *offset;
+                parser->request.method.offset = offset;
                 parser->request.method.length = 1;
                 parser->state = RPS_WAIT_METHOD_END;
             }
@@ -118,7 +130,7 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
             }
             else if ((c_type & CM_RESOURCE) != 0)
             {
-                parser->request.resource.offset = *offset;
+                parser->request.resource.offset = offset;
                 parser->request.resource.length = 1;
                 parser->state = RPS_WAIT_RESOURCE_END;
             }
@@ -144,7 +156,7 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
             }
             else if ((c_type & CM_PROTOCOL) != 0)
             {
-                parser->request.protocol.offset = *offset;
+                parser->request.protocol.offset = offset;
                 parser->request.protocol.length = 1;
                 parser->state = RPS_WAIT_PROTOCOL_END;
             }
@@ -190,7 +202,7 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
             else if ((c_type & CM_NAME) != 0) /* Tolerating CR ending */
             {
                 parser->tolerated_cr = true;
-                parser->current_name.offset = *offset;
+                parser->current_name.offset = offset;
                 parser->current_name.length = 1;
                 parser->state = RPS_WAIT_NAME_END;
             }
@@ -215,7 +227,7 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
             }
             else if ((c_type & CM_NAME) != 0)
             {
-                parser->current_name.offset = *offset;
+                parser->current_name.offset = offset;
                 parser->current_name.length = 1;
                 parser->state = RPS_WAIT_NAME_END;
             }
@@ -246,7 +258,7 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
             }
             else if (c == ':')
             {
-                parser->current_value.offset = *offset + 1;
+                parser->current_value.offset = offset + 1;
                 parser->current_value.length = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
@@ -260,7 +272,7 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
             }
             else if (c == ':')
             {
-                parser->current_value.offset = *offset + 1;
+                parser->current_value.offset = offset + 1;
                 parser->current_value.length = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
@@ -295,59 +307,46 @@ static struct Error *parse_request_window(struct RequestParser *parser, const st
 
         case RPS_WAIT_CONTENT:
             /* Received the first symbol of centent, processing content in bulk */
-            available_content = window->size - window_offset;
+            available_content = buffer->size - *buffer_used;
             if (available_content >= parser->remaining_content)
             {
-                window_offset += parser->remaining_content;
-                (*offset) += parser->remaining_content;
+                (*buffer_used) += parser->remaining_content;
+                offset += parser->remaining_content;
                 parser->state = RPS_END;
             }
             else
             {
-                window_offset += available_content;
-                (*offset) += available_content;
+                (*buffer_used) += available_content; /* aka (*buffer_used) = buffer->size */
+                offset += available_content;
             }
-            window_offset--; /* Making up for offset++ in for loop (could also just return, the algorithm is guaranteed to exit anyway) */
-            (*offset)--;
-            break;
+            goto parse_end; /* Breaking out of switch and for without incrementing buffer_used and offset */
 
         default: /* RPS_END */
-            return OK;
+            goto parse_end; /* Breaking out of switch and for without incrementing buffer_used and offset */
         }
     }
+
+    parse_end:
+    PRET(char_buffer_resize(&parser->request.data, offset));
+    memcpy(parser->request.data.p + initial_offset, buffer->p + initial_buffer_used, *buffer_used - initial_buffer_used);
     return OK;
 }
 
-struct Error *parse_request(struct RequestParser *parser, struct Ring *ring)
+void parse_request_initialize(struct RequestParser *parser)
 {
-    struct RingConstWindow windows[2];
-    const struct RingConstWindow *window_i;
-    unsigned char window_number;
-    size_t offset, read;
+    memset((char*)parser, 0, sizeof(struct RequestParser));
+}
 
-    if (!character_map_initialized) { initialize_character_map(); character_map_initialized = true; }
-    ring_get_all(ring, windows, &window_number);
+void parse_request_reset(struct RequestParser *parser)
+{
+    /* Set everything except request.data to zero */
+    const size_t begin = offsetof(struct RequestParser, request.data);
+    const size_t end = offsetof(struct RequestParser, request.data) + sizeof(parser->request.data);
+    memset((char*)parser, 0, begin);
+    memset((char*)parser + end, 0, sizeof(struct RequestParser) - end);
+}
 
-    /* Parse */
-    offset = parser->request.data.size;
-    for (window_i = windows; window_i < windows + window_number; window_i++)
-    {
-        PRET(parse_request_window(parser, window_i, &offset));
-        if (parser->state == RPS_END) break;
-    }
-    read = offset - parser->request.data.size;
-
-    /* Copy data */
-    PRET(char_buffer_resize(&parser->request.data, offset));
-    offset = parser->request.data.size;
-    for (window_i = windows; window_i < windows + window_number && offset < read; window_i++)
-    {
-        size_t window_read = offset - read;
-        if (window_read < window_i->size) window_read = window_i->size;
-        memcpy(parser->request.data.p + offset, window_i->p, window_read);
-        offset += window_read;
-    }
-
-    PRET(ring_pop(ring, read));
-    return OK;
+void parse_request_finalize(struct RequestParser *parser)
+{
+    char_buffer_finalize(&parser->request.data);
 }

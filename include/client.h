@@ -5,11 +5,12 @@
 #include "request_parser.h"
 
 #include <poll.h>
+#include <sys/socket.h>
 
 struct Client
 {
     struct RequestParser parser;
-    bool active;
+    struct sockaddr_storage address;
 };
 
 DECLARE_BUFFER(struct Client, ClientBuffer)

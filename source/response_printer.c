@@ -16,7 +16,7 @@ struct Error *print_response(const struct Response *response, struct CharBuffer 
     if (p_global_calender != NULL) global_calender = *p_global_calender;
 
     /* Print */
-    error = string_printf(buffer,
+    error = string_printf_end(buffer,
         "HTTP/1.1 200 OK\r\n"
         "Date: %s, %02d %s %d %02d:%02d:%02d GMT\r\n"
         "Content-Type: text/html; charset=UTF-8\r\n"
@@ -33,6 +33,5 @@ struct Error *print_response(const struct Response *response, struct CharBuffer 
     );
     PRET(error);
 
-    buffer->size--; /* Null terminator not needed */
     return OK;
 }

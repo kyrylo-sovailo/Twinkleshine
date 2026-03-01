@@ -19,7 +19,6 @@ source/path.c
 source/request_parser.c
 source/request_processor.c
 source/response_printer.c
-source/ring.c
 source/string.c
 source/twinkleshine.c
 source/value.c)
