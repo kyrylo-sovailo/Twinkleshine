@@ -13,12 +13,12 @@ struct Request
 {
     struct CharBuffer data;         /* Owner of all memory */
 
-    struct Value method;            /* Requested method */
-    struct Value resource;          /* Requested resource */
-    struct Value protocol;          /* Protocol version */
+    struct ValueRange method;       /* Requested method */
+    struct ValueRange resource;     /* Requested resource */
+    struct ValueRange protocol;     /* Protocol version */
     bool keep_alive;                /* Keep connection alive */
 
-    struct Value content;           /* Content */
+    struct ValueRange content;      /* Content */
 };
 
 /* Response fields that are necessary to form response text */

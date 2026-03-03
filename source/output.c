@@ -28,6 +28,7 @@ static struct Log logs[MAX_TOTAL_NUMBER];       /* Array of logs, oldest first *
 static unsigned int logs_size = 0;              /* Real number of files */
 static unsigned long int logs_total_size = 0;   /* Real sum of log file sizes */
 static bool initialized = false;                /* Was initialize() called */
+static bool catastrophic = false;               /* Initialization failed, fall back to catastrophic output */
 static FILE *file = NULL;                       /* Opened file */
 static const char *const log_directory = "/var/log/twinkleshine/";              /* Log directory */
 static const size_t log_directory_length = sizeof("/var/log/twinkleshine/") - 1;/* Length if log directory */
@@ -56,6 +57,7 @@ static bool delete(unsigned int number)
     {
         if (unlink(logs[log_i].path) < 0) success = false;
         free(logs[log_i].path);
+        logs[log_i].path = NULL;
         logs_total_size -= logs[log_i].size;
     }
     memmove(&logs[0], &logs[number], (logs_size - number) * sizeof(*logs));
@@ -99,6 +101,7 @@ static bool insert(time_t global_now, struct Log *log)
     {
         if (unlink(logs[log_i].path) < 0) success = false;
         free(logs[log_i].path);
+        logs[log_i].path = NULL;
         return success;
     }
 
@@ -110,7 +113,7 @@ static bool insert(time_t global_now, struct Log *log)
 
     /* Insert */
     memmove(&logs[logs_size - log_i + 1], &logs[logs_size - log_i], log_i * sizeof(*logs));
-    logs[logs_size - log_i] = *log;
+    logs[logs_size - log_i] = *log; /* TODO: ensure no double free is possible */
     logs_size++;
     logs_total_size += log->size;
 
@@ -206,13 +209,13 @@ void output_open()
     unsigned int create_new_log_number = 0;
     
     /* Initialize */
-    if (!initialized && !initialize()) exit(1); /* Catastrophic error */
-    initialized = true;
+    if (catastrophic) return;
+    if (!initialized) { initialized = true; if (!initialize()) { catastrophic = true; return; } }
     
     /* Get time */
     global_now = time(NULL);
     p_global_now_calender = gmtime(&global_now); /* TODO: not thread-safe */
-    if (p_global_now_calender == NULL) exit(2); /* Catastrophic error */
+    if (p_global_now_calender == NULL) { catastrophic = true; return; }
     global_now_calender = *p_global_now_calender;
     global_start_calender.tm_year = global_now_calender.tm_year;
     global_start_calender.tm_mon = global_now_calender.tm_mon;
@@ -238,26 +241,27 @@ void output_open()
         new_log.global_start = global_start;
         new_log.number = create_new_log_number;
         new_log.path = malloc(log_directory_length + name_length + 1);
-        if (new_log.path == NULL) exit(3); /* Catastrophic error */
+        if (new_log.path == NULL) { catastrophic = true; return; }
         memcpy(new_log.path, log_directory, log_directory_length);
         sprintf(new_log.path + log_directory_length, "%u-%u-%u.log", global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
-        if (!insert(global_now, &new_log)) exit(4); /* Catastrophic error */
+        if (!insert(global_now, &new_log)) { free(new_log.path); catastrophic = true; return; }
+        ZERO_AND_FORGET(&new_log);
     }
 
     /* Write to the last log */
     file = fopen(logs[logs_size - 1].path, "w");
-    if (file == NULL) exit(5); /* Catastrophic error */
+    if (file == NULL) { catastrophic = true; return; }
 }
 
 void output_close()
 {
-    if (file != NULL)
-    {
-        time_t global_now = time(NULL);
-        fclose(file);
-        file = NULL;
-        cleanup(global_now);
-    }
+    time_t global_now;
+    if (catastrophic) return; /* Catastrophic, nothing to do */
+    if (file == NULL) return; /* Already closed, nothing to do */
+    global_now = time(NULL);
+    fclose(file);
+    file = NULL;
+    cleanup(global_now);
 }
 
 void output_print(const char *format, ...)
@@ -270,10 +274,15 @@ void output_print(const char *format, ...)
 
 void output_vprint(const char *format, va_list va)
 {
-    if (file != NULL)
+    if (catastrophic)
+    {
+        int result = vfprintf(stderr, format, va);
+        if (result < 0) exit(1); /* Nothing can be done, fatal error */
+    }
+    else if (file != NULL)
     {
         int result = vfprintf(file, format, va);
-        if (result < 0) exit(3); /* Catastrophic error */
+        if (result < 0) { catastrophic = true; output_print("ERROR LOST"); return; }
         logs[logs_size - 1].size += (unsigned int)result;
         logs_total_size += (unsigned int)result;
     }

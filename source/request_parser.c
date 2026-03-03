@@ -16,9 +16,9 @@ enum CharacterMap
 };
 
 static unsigned char character_map[256];
-static bool character_map_initialized = false;
+static bool initialized = false;
 
-static void initialize_character_map(void)
+static void initialize(void)
 {
     const char *p;
     char c;
@@ -52,26 +52,45 @@ static void initialize_character_map(void)
     for (p = "!#$%&'*+-.^_`|~"; *p != '\0'; p++) character_map[(unsigned char)*p] |= CM_NAME;
 
     /* Allowed in value */
-    for (c = '!'; c <= '~'; c++) character_map[(unsigned char)c] |= CM_VALUE; /*All visible ASCII*/
+    for (c = ' '; c <= '~'; c++) character_map[(unsigned char)c] |= CM_VALUE; /*All visible ASCII and space*/
 }
 
-static struct Error *parse_name_value(struct RequestParser *parser)
+static struct Value parse_construct_value(struct RequestParser *parser, const struct CharBuffer *buffer, size_t initial_buffer_used, const struct ValueRange *range)
 {
-    const char *p = parser->request.data.p;
-    value_trim(p, &parser->current_name);
-    if (value_compare_case_mem(p, &parser->current_name, "content-length", strlen("content-length")))
+    const size_t initial_offset = parser->request.data.size;
+    struct Value value = { 0 };
+    
+    if (initial_offset > range->offset) value.size[0] = initial_offset - range->offset; /* Part in request.data */
+    value.size[1] = range->size - value.size[0]; /* Part in buffer */
+
+    if (value.size[0] > 0) value.p[0] = parser->request.data.p + range->offset;
+    if (value.size[1] > 0) value.p[1] = buffer->p + initial_buffer_used + (range->offset - initial_offset);
+    
+    return value;
+}
+
+static struct Error *parse_name_value(struct RequestParser *parser, const struct CharBuffer *buffer, size_t initial_buffer_used)
+{
+    
+    struct Value name, value;
+    name = parse_construct_value(parser, buffer, initial_buffer_used, &parser->current_name);
+    if (value_compare_case_mem(&name, "content-length", strlen("content-length")))
     {
-        value_trim(p, &parser->current_value);
-        ARET2(value_to_uint(p, &parser->current_value, &parser->remaining_content),
-            "Invalid integer: %.*s", (int)parser->current_value.length, p + parser->current_value.offset);        
+        value = parse_construct_value(parser, buffer, initial_buffer_used, &parser->current_value);
+        value_trim(&value);
+        ARET4(value_to_uint(&value, &parser->remaining_content),
+            "Invalid integer: %.*s%.*s", (int)value.size[0], value.p[0], (int)value.size[1], value.p[1]);
     }
-    else if (value_compare_case_mem(p, &parser->current_name, "connection", strlen("connection")))
+    else if (value_compare_case_mem(&name, "connection", strlen("connection")))
     {
-        struct Value current_value_part;
-        while (value_parse_comma(p, &parser->current_value, &current_value_part))
+        struct Value current_value;
+        value = parse_construct_value(parser, buffer, initial_buffer_used, &parser->current_value);
+        while (true)
         {
-            value_trim(p, &current_value_part);
-            if (value_compare_case_mem(p, &current_value_part, "keep-alive", strlen("keep-alive"))) { parser->request.keep_alive = true; break; }
+            const bool parts_remaining = value_parse_comma(&value, &current_value);
+            value_trim(&current_value);
+            if (value_compare_case_mem(&current_value, "keep-alive", strlen("keep-alive"))) { parser->request.keep_alive = true; break; }
+            if (!parts_remaining) break;
         }
     }
     return OK;
@@ -88,7 +107,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
     const size_t initial_buffer_used = *buffer_used, initial_offset = parser->request.data.size;
     size_t offset;
     
-    if (!character_map_initialized) { initialize_character_map(); character_map_initialized = true; }
+    if (!initialized) { initialize(); initialized = true; }
 
     for (offset = initial_offset; *buffer_used < buffer->size; (*buffer_used)++, offset++)
     {
@@ -105,7 +124,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             else if ((c_type & CM_METHOD) != 0)
             {
                 parser->request.method.offset = offset;
-                parser->request.method.length = 1;
+                parser->request.method.size = 1;
                 parser->state = RPS_WAIT_METHOD_END;
             }
             else RET1("Invalid symbol: %d", (int)c);
@@ -118,7 +137,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             }
             else if ((c_type & CM_METHOD) != 0)
             {
-                parser->request.method.length++;
+                parser->request.method.size++;
             }
             else RET1("Invalid symbol: %d", (int)c);
             break;
@@ -131,7 +150,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             else if ((c_type & CM_RESOURCE) != 0)
             {
                 parser->request.resource.offset = offset;
-                parser->request.resource.length = 1;
+                parser->request.resource.size = 1;
                 parser->state = RPS_WAIT_RESOURCE_END;
             }
             else RET1("Invalid symbol: %d", (int)c);
@@ -144,7 +163,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             }
             else if ((c_type & CM_RESOURCE) != 0)
             {
-                parser->request.resource.length++;
+                parser->request.resource.size++;
             }
             else RET1("Invalid symbol: %d", (int)c);
             break;
@@ -157,7 +176,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             else if ((c_type & CM_PROTOCOL) != 0)
             {
                 parser->request.protocol.offset = offset;
-                parser->request.protocol.length = 1;
+                parser->request.protocol.size = 1;
                 parser->state = RPS_WAIT_PROTOCOL_END;
             }
             else RET1("Invalid symbol: %d", (int)c);
@@ -170,7 +189,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             }
             else if ((c_type & CM_PROTOCOL) != 0)
             {
-                parser->request.resource.length++;
+                parser->request.protocol.size++;
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
@@ -203,15 +222,15 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             {
                 parser->tolerated_cr = true;
                 parser->current_name.offset = offset;
-                parser->current_name.length = 1;
+                parser->current_name.size = 1;
                 parser->state = RPS_WAIT_NAME_END;
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
-                if (c == '\r') /* Received CRCR */
+                if (c == '\r')
                 {
                     parser->tolerated_cr = true;
-                    parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END;
+                    parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received CR CR */
                 }
                 else
                 {
@@ -228,20 +247,20 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             else if ((c_type & CM_NAME) != 0)
             {
                 parser->current_name.offset = offset;
-                parser->current_name.length = 1;
+                parser->current_name.size = 1;
                 parser->state = RPS_WAIT_NAME_END;
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
                 if (c == '\r')
                 {
-                    if (!parser->tolerated_cr) parser->state = RPS_WAIT_FINAL_LINE_LF;
-                    else parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END;
+                    if (!parser->tolerated_cr) parser->state = RPS_WAIT_FINAL_LINE_LF; /* Received CR LF CR */
+                    else parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received CR CR */
                 }
                 else
                 {
                     parser->tolerated_lf = true;
-                    parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END;
+                    parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received ?? LF */
                 }
             }
             else RET1("Invalid symbol: %d", (int)c);
@@ -254,12 +273,12 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             }
             else if ((c_type & CM_NAME) != 0)
             {
-                parser->current_name.length++;
+                parser->current_name.size++;
             }
             else if (c == ':')
             {
                 parser->current_value.offset = offset + 1;
-                parser->current_value.length = 0;
+                parser->current_value.size = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
             else RET1("Invalid symbol: %d", (int)c);
@@ -273,7 +292,7 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
             else if (c == ':')
             {
                 parser->current_value.offset = offset + 1;
-                parser->current_value.length = 0;
+                parser->current_value.size = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
             else RET1("Invalid symbol: %d", (int)c);
@@ -282,27 +301,31 @@ struct Error *parse_request(struct RequestParser *parser, const struct CharBuffe
         case RPS_WAIT_VALUE_END:
             if ((c_type & CM_VALUE) != 0)
             {
-                parser->current_value.length++;
+                parser->current_value.size++;
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
-                PRET(parse_name_value(parser));
+                PRET(parse_name_value(parser, buffer, initial_buffer_used));
                 if (c == '\r')
                 {
-                    if (!parser->tolerated_cr) parser->state = RPS_WAIT_FINAL_LINE_LF;
-                    else parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END;
+                    if (!parser->tolerated_cr) parser->state = RPS_WAIT_LINE_LF;
+                    else parser->state = RPS_WAIT_NAME_BEGIN;
                 }
                 else
                 {
                     parser->tolerated_lf = true;
-                    parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END;
+                    parser->state = RPS_WAIT_NAME_BEGIN;
                 }
             }
             else RET1("Invalid symbol: %d", (int)c);
             break;
 
         case RPS_WAIT_FINAL_LINE_LF:
-            if (c == '\n') RET1("Invalid symbol: %d", (int)c);
+            if (c == '\n')
+            {
+                parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received CR LF CR LF */
+            }
+            else RET1("Invalid symbol: %d", (int)c);
             break;
 
         case RPS_WAIT_CONTENT:

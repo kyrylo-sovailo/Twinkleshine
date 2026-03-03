@@ -3,94 +3,122 @@
 #include <limits.h>
 #include <string.h>
 
-bool value_compare_str(const char *a_buffer, const struct Value *a, const char *b)
+bool value_compare_str(const struct Value *a, const char *b)
 {
-    return value_compare_mem(a_buffer, a, b, strlen(b));
+    return value_compare_mem(a, b, strlen(b));
 }
 
-bool value_compare_mem(const char *a_buffer, const struct Value *a, const char *b, size_t b_length)
+bool value_compare_mem(const struct Value *a, const char *b, size_t b_size)
 {
-    return a->length == b_length && memcmp(a_buffer + a->offset, b, b_length) == 0;
+    if ((a->size[0] + a->size[1]) != b_size) return false;
+    if (memcmp(a->p[0], b, a->size[0]) == 0) return false;
+    if (memcmp(a->p[1], b + a->size[0], a->size[1]) == 0) return false;
+    return true;
 }
 
-bool value_compare_case_str(const char *a_buffer, const struct Value *a, const char *b)
+bool value_compare_case_str(const struct Value *a, const char *b)
 {
-    return value_compare_case_mem(a_buffer, a, b, strlen(b));
+    return value_compare_case_mem(a, b, strlen(b));
 }
 
-bool value_compare_case_mem(const char *a_buffer, const struct Value *a, const char *b, size_t b_length)
+bool value_compare_case_mem(const struct Value *a, const char *b, size_t b_size)
 {
-    size_t i;
-    const char *ai, *bi;
-    if (a->length != b_length) return false;
-    for (i = 0, ai = a_buffer + a->offset, bi = b; i < b_length; i++, ai++, bi++)
+    const char *bi;
+    unsigned char i;
+    if ((a->size[0] + a->size[1]) != b_size) return false;
+    for (bi = b, i = 0; i < 2; i++)
     {
-        char ac = *ai;
-        char bc = *bi;
-        if (ac >= 'A' && ac <= 'Z') ac += ('a' - 'A');
-        /* if (bc >= 'A' && bc <= 'Z') bc += ('a' - 'A'); */ /* b is lowercase */
-        if (ac != bc) return false;
+        const char *ai;
+        for (ai = a->p[i]; ai < a->p[i] + a->size[i]; ai++, bi++)
+        {
+            char ac = *ai;
+            char bc = *bi;
+            if (ac >= 'A' && ac <= 'Z') ac += ('a' - 'A');
+            /* if (bc >= 'A' && bc <= 'Z') bc += ('a' - 'A'); */ /* b is lowercase */
+            if (ac != bc) return false;
+        }
     }
     return true;
 }
 
-bool value_parse_comma(const char *a_buffer, struct Value *a, struct Value *result)
+bool value_parse_comma(struct Value *a, struct Value *result)
 {
     const char *found;
-    if (a->length == 0) return false;
-    found = memchr(a_buffer + a->offset, ',', a->length);
-    if (found == NULL)
+    if (a->size[0] + a->size[1] == 0) return false;
+    found = memchr(a->p[0], ',', a->size[0]);
+    if (found != NULL)
     {
-        *result = *a;
-        a->offset += a->length;
-        a->length = 0;
+        result->p   [0] = a->p[0];
+        result->size[0] = (size_t)(found - a->p[0]);
+        result->p   [1] = NULL;
+        result->size[1] = 0;
+        a->size[0] = (size_t)(a->p[0] + a->size[0] - found - 1);
+        a->p   [0] = found + 1;
+        return true;
     }
-    else
+    found = memchr(a->p[1], ',', a->size[1]);
+    if (found != NULL)
     {
-        result->offset = a->offset;
-        result->length = (size_t)(found - a_buffer);
-        a->offset += result->length + 1;
-        a->length -= result->length + 1;
+        const bool first_part_empty = a->size[0] == 0;
+        result->p   [0] = first_part_empty ? a->p[1]                   : a->p[0];
+        result->size[0] = first_part_empty ? (size_t)(found - a->p[1]) : a->size[0];
+        result->p   [1] = first_part_empty ? NULL                      : a->p[1];
+        result->size[1] = first_part_empty ? 0                         : (size_t)(found - a->p[1]);
+        a->size[0] = (size_t)(a->p[1] + a->size[1] - found - 1);
+        a->p   [0] = found + 1;
+        a->size[1] = 0;
+        a->p   [1] = NULL;
+        return true;
     }
-    return true;
+    *result = *a;
+    memset(a, 0, sizeof(*a));
+    return false;
 }
 
-void value_trim(const char *buffer, struct Value *a)
+/* Trims a value of spaces */
+void value_trim(struct Value *a)
 {
     /* Delete beginning spaces */
+    unsigned char i = 0;
     while (true)
     {
         char c;
-        if (a->length == 0) return; /* The string is all spaces */
-        c = buffer[a->offset];
+        if (a->size[i] == 0) { if (i == 0) i = 1; else return; } /* No non-spaces found, go to second part or exit */
+        c = *a->p[i];
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break; /*TODO: use character map from request_processor.c */
-        a->offset++;
-        a->length--;
+        a->p[i]++;
+        a->size[i]--;
     }
-
+    
     /* Delete ending spaces */
+    i = 1;
     while (true)
     {
         char c;
-        c = buffer[a->offset + a->length - 1];
+        if (a->size[i] == 0) { if (i == 1) i = 0; else { /*Never happens*/ } } /* No non-spaces found, go to first part or exit */
+        c = a->p[i][a->size[i] - 1];
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break;
-        a->length--;
+        a->size[i]--;
     }
 }
 
-bool value_to_uint(const char *buffer, struct Value *a, unsigned int *result)
+/* Converts  */
+bool value_to_uint(const struct Value *a, unsigned int *result)
 {
-    size_t offset;
-    unsigned int local_result;
-    local_result = 0;
-    for (offset = a->offset; offset < a->offset + a->length; offset++)
+    unsigned int local_result = 0;
+    unsigned char i;
+    for (i = 0; i < 2; i++)
     {
-        char c;
-        if (local_result >= (UINT_MAX - 9) / 10) return false; /* Number too big */
-        c = buffer[offset];
-        if (!(c >= '0' && c <= '9')) return false;
-        local_result = 10 * local_result + (unsigned int)(c - '0');
+        const char *p;
+        for (p = a->p[i]; p < a->p[i] + a->size[i]; p++)
+        {
+            char c;
+            if (local_result >= (UINT_MAX - 9) / 10) return false; /* Number too big */
+            c = *p;
+            if (!(c >= '0' && c <= '9')) return false;
+            local_result = 10 * local_result + (unsigned int)(c - '0');
+        }
     }
-    if (result != NULL) *result = local_result;
+    *result = local_result;
     return true;
 }

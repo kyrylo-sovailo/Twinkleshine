@@ -21,13 +21,13 @@ struct Error *print_response(const struct Response *response, struct CharBuffer 
         "Date: %s, %02d %s %d %02d:%02d:%02d GMT\r\n"
         "Content-Type: text/html; charset=UTF-8\r\n"
         "Content-Length: %u\r\n"
-        "Server: Apache/1.3.3.7 (Unix) (Red-Hat/Linux)\r\n"
+        "Server: Twinkleshine\r\n"
         "Connection: %s\r\n"
         "\r\n"
         "%p",
         days[global_calender.tm_wday], global_calender.tm_mday, months[global_calender.tm_mon], 1900 + global_calender.tm_year,
         global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec,
-        (unsigned int)buffer->size,
+        (unsigned int)response->content.size,
         response->keep_alive ? "keep-alive" : "close",
         (void*)&response->content /* Custom printing rule for CharBuffer */
     );

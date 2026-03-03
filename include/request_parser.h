@@ -32,8 +32,8 @@ struct RequestParser
     enum RequestParserState state;  /* Current state */
     unsigned int remaining_content; /* Expected content length */
     bool tolerated_lf, tolerated_cr;/* Flags that indicate non-conforming implementations, used to avoid waiting for line ends that aren't coming */
-    struct Value current_name;      /* Field name */
-    struct Value current_value;     /* Field value */
+    struct ValueRange current_name; /* Field name */
+    struct ValueRange current_value;/* Field value */
     struct Request request;         /* Current output */
 };
 
