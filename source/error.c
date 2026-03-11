@@ -9,33 +9,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-
-/* Needed by error_print_date */
-static void error_print_date(void)
-{
-    time_t global_time;
-    struct tm *p_global_calender, global_calender;
-    struct tm *p_local_calender, local_calender;
-    char calender_buffer[64];
-
-    /* Print time */
-    global_time = time(NULL);
-    p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
-    if (p_global_calender != NULL) global_calender = *p_global_calender;
-    p_local_calender = localtime(&global_time);
-    if (p_local_calender != NULL) local_calender = *p_local_calender;
-    if (p_global_calender != NULL)
-    {
-        strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &global_calender);
-        output_print("%s\n", calender_buffer);
-        if (p_local_calender != NULL)
-        {
-            strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &local_calender);
-            output_print("%s\n", calender_buffer);
-        }
-    }
-}
 
 struct Error
 {
@@ -179,12 +152,10 @@ void error_print(const struct Error *error)
             if (error_i == PANIC) break;
             error_i = error_i->next;
         }
-
-        /* Print time */
-        error_print_date();
     }
 
-    /* Print trailing newline */
+    /* Print tail */
+    output_print_time();
     output_print("\n");
     output_close();
 }

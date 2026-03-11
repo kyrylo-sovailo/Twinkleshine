@@ -28,9 +28,8 @@ struct Error *path_up(struct CharBuffer *path, size_t count)
     ARET1(nonslash != 0, "Could not step back from %s", path->p);
     path->size = nonslash;
     path->p[nonslash] = '\0';
-    return OK;
-
     (void)count; /*TODO*/
+    return OK;
 }
 
 struct Error *path_append_str(struct CharBuffer *path, const char *other, bool is_directory)

@@ -1,5 +1,6 @@
 #include "../include/output.h"
 #include "../include/bool.h"
+#include "../include/constants.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -11,10 +12,6 @@
 #include <time.h>
 
 /* Log filename format: YYYY-MM-DD.log[.N] */
-#define MAX_FILE_SIZE (1024 * 1024)         /* Maximum size of log file (1Mb) */
-#define MAX_FILE_AGE (7 * 24 * 3600)        /* Maximum age of log file (7 Days) */
-#define MAX_TOTAL_SIZE (16 * 1024 * 1024)   /* Maximum total size of log (16 Mb) */
-#define MAX_TOTAL_NUMBER 16                 /* Maximum total number of log files (16) */
 
 /* Record about the existence of a log file */
 struct Log
@@ -24,10 +21,9 @@ struct Log
     unsigned long int size;         /* Log size, bytes */
     char *path;                     /* Full file path */
 };
-static struct Log logs[MAX_TOTAL_NUMBER];       /* Array of logs, oldest first */
+static struct Log logs[MAX_TOTAL_LOG_NUMBER];   /* Array of logs, oldest first */
 static unsigned int logs_size = 0;              /* Real number of files */
 static unsigned long int logs_total_size = 0;   /* Real sum of log file sizes */
-static bool initialized = false;                /* Was initialize() called */
 static bool catastrophic = false;               /* Initialization failed, fall back to catastrophic output */
 static FILE *file = NULL;                       /* Opened file */
 static const char *const log_directory = "/var/log/twinkleshine/";              /* Log directory */
@@ -75,7 +71,7 @@ static bool cleanup(time_t global_now)
     /* Count how many files should be deleted to satisfy constraints */
     for (log_i = 0; log_i < logs_size; log_i++)
     {
-        if ((global_now - logs[log_i].global_start) <= MAX_FILE_AGE && logs_total_size_copy <= MAX_TOTAL_SIZE) break;
+        if ((global_now - logs[log_i].global_start) <= MAX_LOG_AGE && logs_total_size_copy <= MAX_TOTAL_LOG_SIZE) break;
         logs_total_size_copy -= logs[log_i].size;
     }
 
@@ -122,8 +118,7 @@ static bool insert(time_t global_now, struct Log *log)
     return success;
 }
 
-/* Initialize logging, fill logs array */
-static bool initialize(void)
+void output_initialize(void)
 {
     time_t global_now = time(NULL);
     DIR *directory;
@@ -133,10 +128,10 @@ static bool initialize(void)
     directory = opendir(log_directory);
     if (directory == NULL)
     {
-        if (mkdir(log_directory, 0755) < 0) return false;
+        if (mkdir(log_directory, 0755) < 0) { catastrophic = true; return; }
         directory = opendir(log_directory);
     }
-    if (directory == NULL) return false;
+    if (directory == NULL) { catastrophic = true; return; }
 
     /* Read directory */
     for (entry = readdir(directory); entry != NULL; entry = readdir(directory))
@@ -185,7 +180,7 @@ static bool initialize(void)
         /* Read size */
         name_length = strlen(entry->d_name);
         new_log.path = malloc(log_directory_length + name_length + 1);
-        if (new_log.path == NULL) { closedir(directory); return false; } /* Out of memory, fail */
+        if (new_log.path == NULL) { closedir(directory); catastrophic = true; return; } /* Out of memory, fail */
         memcpy(new_log.path, log_directory, log_directory_length);
         memcpy(new_log.path + log_directory_length, entry->d_name, name_length + 1);
         if (stat(new_log.path, &status) < 0) { free(new_log.path); continue; } /* Stat failed, skip */
@@ -193,24 +188,21 @@ static bool initialize(void)
         
 
         /* Insert */
-        if (!insert(global_now, &new_log)) { free(new_log.path); closedir(directory); return false; } /* Insert failed, fail */
+        if (!insert(global_now, &new_log)) { free(new_log.path); closedir(directory); catastrophic = true; return; } /* Insert failed, fail */
         ZERO_AND_FORGET(&new_log);
     }
 
     closedir(directory);
-    return true;
 }
 
-void output_open()
+void output_open(void)
 {
     time_t global_now, global_start;
     struct tm *p_global_now_calender, global_now_calender, global_start_calender = { 0 };
     bool create_new_log = false;
     unsigned int create_new_log_number = 0;
     
-    /* Initialize */
     if (catastrophic) return;
-    if (!initialized) { initialized = true; if (!initialize()) { catastrophic = true; return; } }
     
     /* Get time */
     global_now = time(NULL);
@@ -228,7 +220,7 @@ void output_open()
         /* There are no logs or the last log's time does not match */
         create_new_log = true;
     }
-    else if (logs[logs_size - 1].size > MAX_FILE_SIZE)
+    else if (logs[logs_size - 1].size > MAX_LOG_SIZE)
     {
         /* There is a log with matching time, but it is already too big */
         create_new_log_number = logs[logs_size - 1].number + 1;
@@ -253,7 +245,7 @@ void output_open()
     if (file == NULL) { catastrophic = true; return; }
 }
 
-void output_close()
+void output_close(void)
 {
     time_t global_now;
     if (catastrophic) return; /* Catastrophic, nothing to do */
@@ -285,5 +277,30 @@ void output_vprint(const char *format, va_list va)
         if (result < 0) { catastrophic = true; output_print("ERROR LOST"); return; }
         logs[logs_size - 1].size += (unsigned int)result;
         logs_total_size += (unsigned int)result;
+    }
+}
+
+void output_print_time(void)
+{
+    time_t global_time;
+    struct tm *p_global_calender, global_calender;
+    struct tm *p_local_calender, local_calender;
+    char calender_buffer[64];
+
+    /* Print time */
+    global_time = time(NULL);
+    p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
+    if (p_global_calender != NULL) global_calender = *p_global_calender;
+    p_local_calender = localtime(&global_time);
+    if (p_local_calender != NULL) local_calender = *p_local_calender;
+    if (p_global_calender != NULL)
+    {
+        strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &global_calender);
+        output_print("%s\n", calender_buffer);
+        if (p_local_calender != NULL)
+        {
+            strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &local_calender);
+            output_print("%s\n", calender_buffer);
+        }
     }
 }

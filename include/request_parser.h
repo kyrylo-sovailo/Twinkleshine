@@ -2,7 +2,9 @@
 #define REQUEST_PARSER_H
 
 #include "error.h"
-#include "request_response.h"
+#include "request.h"
+#include "ring.h"
+#include "value.h"
 
 /* Client's state machine */
 enum RequestParserState
@@ -26,27 +28,19 @@ enum RequestParserState
     RPS_END
 };
 
-/* Client's state */
+/* Client's state (except the memory itself) */
 struct RequestParser
 {
-    enum RequestParserState state;  /* Current state */
-    unsigned int remaining_content; /* Expected content length */
-    bool tolerated_lf, tolerated_cr;/* Flags that indicate non-conforming implementations, used to avoid waiting for line ends that aren't coming */
-    struct ValueRange current_name; /* Field name */
-    struct ValueRange current_value;/* Field value */
-    struct Request request;         /* Current output */
+    struct Request request;             /* Current output */
+    size_t offset;                      /* Number of bytes parsed */
+    enum RequestParserState state;      /* Current state */
+    unsigned int remaining_content;     /* Expected content length */
+    bool tolerated_lf, tolerated_cr;    /* Flags that indicate non-conforming implementations, used to avoid waiting for line ends that aren't coming */
+    struct ValueLocation current_name;  /* Field name */
+    struct ValueLocation current_value; /* Field value */
 };
 
 /* Feed buffer to parser */
-struct Error *parse_request(struct RequestParser *parser, const struct CharBuffer *buffer, size_t *buffer_used) NODISCARD;
-
-/* Prepare the parser for the first parse */
-void parse_request_initialize(struct RequestParser *parser);
-
-/* Prepare the parser for the next parse */
-void parse_request_reset(struct RequestParser *parser);
-
-/* Finalize the parser */
-void parse_request_finalize(struct RequestParser *parser);
+struct Error *request_parser_parse(struct RequestParser *parser, const struct Ring *input) NODISCARD;
 
 #endif

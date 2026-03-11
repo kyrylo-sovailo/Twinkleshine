@@ -16,7 +16,7 @@ DECLARE_BUFFER(GENERIC_ARGMENT_8, GenericQWordBuffer)
     { \
         void *new_p; \
         size_t new_capacity = (cast->capacity == 0) ? 1 : cast->capacity; \
-        while (size > new_capacity) new_capacity <<= 1; \
+        while (size > new_capacity) new_capacity *= 2; \
         new_p = realloc(cast->p, new_capacity * SIZE_EXPRESSION); \
         ARET(new_p != NULL); \
         cast->capacity = new_capacity; \
@@ -33,7 +33,7 @@ DECLARE_BUFFER(GENERIC_ARGMENT_8, GenericQWordBuffer)
     { \
         void *new_p; \
         size_t new_capacity = (cast->capacity == 0) ? 1 : cast->capacity; \
-        while (size > new_capacity) new_capacity <<= 1; \
+        while (size > new_capacity) new_capacity *= 2; \
         new_p = realloc(cast->p, new_capacity * SIZE_EXPRESSION); \
         ARET(new_p != NULL); \
         cast->capacity = new_capacity; \
@@ -50,7 +50,7 @@ DECLARE_BUFFER(GENERIC_ARGMENT_8, GenericQWordBuffer)
     { \
         void *new_p; \
         size_t new_capacity = (cast->capacity == 0) ? 1 : cast->capacity; \
-        while (cast->size + size > new_capacity) new_capacity <<= 1; \
+        while (cast->size + size > new_capacity) new_capacity *= 2; \
         new_p = realloc(cast->p, new_capacity * SIZE_EXPRESSION); \
         ARET(new_p != NULL); \
         cast->capacity = new_capacity; \

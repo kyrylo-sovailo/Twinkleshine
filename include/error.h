@@ -41,13 +41,13 @@ struct Error;
 #define GOTO3(FORMAT, A, B, C) { error = error_internal_allocate(ERROR_FORMAT_F(FORMAT), A, B, C); goto failure; }
 #define GOTO4(FORMAT, A, B, C, D) { error = error_internal_allocate(ERROR_FORMAT_F(FORMAT), A, B, C, D); goto failure; }
 
-/* Assigns 'error' variable and goes to 'finalize' label if expression is false (AGOTO = conditional goto) */
-#define AGOTO(EXPRESSION) { const bool check = EXPRESSION; if (!check) { error = error_internal_allocate(ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
-#define AGOTO0(EXPRESSION, FORMAT) { const bool check = EXPRESSION; if (!check) { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); goto failure; } }
-#define AGOTO1(EXPRESSION, FORMAT, A) { const bool check = EXPRESSION; if (!check) { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); goto failure; } }
-#define AGOTO2(EXPRESSION, FORMAT, A, B) { const bool check = EXPRESSION; if (!check) { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B); goto failure; } }
-#define AGOTO3(EXPRESSION, FORMAT, A, B, C) { const bool check = EXPRESSION; if (!check) { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C); goto failure; } }
-#define AGOTO4(EXPRESSION, FORMAT, A, B, C, D) { const bool check = EXPRESSION; if (!check) { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C, D); goto failure; } }
+/* Assigns 'error' variable and goes to 'finalize' label if expression is false (AGOTO = assert goto) */
+#define AGOTO(EXPRESSION) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
+#define AGOTO0(EXPRESSION, FORMAT) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); goto failure; } }
+#define AGOTO1(EXPRESSION, FORMAT, A) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); goto failure; } }
+#define AGOTO2(EXPRESSION, FORMAT, A, B) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B); goto failure; } }
+#define AGOTO3(EXPRESSION, FORMAT, A, B, C) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C); goto failure; } }
+#define AGOTO4(EXPRESSION, FORMAT, A, B, C, D) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C, D); goto failure; } }
 
 /* Assigns 'error' variable and goes to 'finalize' label if expression is error (PGOTO = propagate goto) */
 #define PGOTO(EXPRESSION) { struct Error *check = EXPRESSION; if (check != OK) { error = error_internal_allocate_append(check, ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
@@ -65,13 +65,13 @@ struct Error;
 #define RET3(FORMAT, A, B, C) { return error_internal_allocate(ERROR_FORMAT_F(FORMAT), A, B, C); }
 #define RET4(FORMAT, A, B, C, D) { return error_internal_allocate(ERROR_FORMAT_F(FORMAT), A, B, C, D); }
 
-/* Returns error if expression is false (ARET = conditional return) */
-#define ARET(EXPRESSION) { const bool check = EXPRESSION; if (!check) return error_internal_allocate(ERROR_FORMAT_E(#EXPRESSION)); }
-#define ARET0(EXPRESSION, FORMAT) { const bool check = EXPRESSION; if (!check) return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); }
-#define ARET1(EXPRESSION, FORMAT, A) { const bool check = EXPRESSION; if (!check) return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); }
-#define ARET2(EXPRESSION, FORMAT, A, B) { const bool check = EXPRESSION; if (!check) return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B); }
-#define ARET3(EXPRESSION, FORMAT, A, B, C) { const bool check = EXPRESSION; if (!check) return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C); }
-#define ARET4(EXPRESSION, FORMAT, A, B, C, D) { const bool check = EXPRESSION; if (!check) return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C, D); }
+/* Returns error if expression is false (ARET = assert return) */
+#define ARET(EXPRESSION) { const bool check = EXPRESSION; if (check) {} else return error_internal_allocate(ERROR_FORMAT_E(#EXPRESSION)); }
+#define ARET0(EXPRESSION, FORMAT) { const bool check = EXPRESSION; if (check) {} else return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); }
+#define ARET1(EXPRESSION, FORMAT, A) { const bool check = EXPRESSION; if (check) {} else return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); }
+#define ARET2(EXPRESSION, FORMAT, A, B) { const bool check = EXPRESSION; if (check) {} else return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B); }
+#define ARET3(EXPRESSION, FORMAT, A, B, C) { const bool check = EXPRESSION; if (check) {} else return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C); }
+#define ARET4(EXPRESSION, FORMAT, A, B, C, D) { const bool check = EXPRESSION; if (check) {} else return error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C, D); }
 
 /* Returns error if expression is error (PRET = propagate return) */
 #define PRET(EXPRESSION) { struct Error *check = EXPRESSION; if (check != OK) return error_internal_allocate_append(check, ERROR_FORMAT_E(#EXPRESSION)); }

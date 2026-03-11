@@ -6,18 +6,24 @@
 
 #include <stddef.h>
 
-/* Specification of a not null-terminated memory location */
-struct ValueRange
+/* Specification of a not null-terminated memory location inside a container */
+struct ValueLocation
 {
     size_t offset;
     size_t size;
 };
 
-/* Not null-terminated value, may be split between two buffers */
+/* Part of memory location */
+struct ValuePart
+{
+    char *p;
+    size_t size;
+};
+
+/* Memory location */
 struct Value
 {
-    const char *p[2];
-    size_t size[2];
+    struct ValuePart parts[2];
 };
 
 /* Compares two values */

@@ -14,13 +14,15 @@ source/char_buffer.c
 source/client.c
 source/error.c
 source/generic_buffer_implementation.c
+source/main.c
 source/output.c
 source/path.c
 source/request_parser.c
 source/request_processor.c
-source/response_printer.c
+source/ring.c
+source/server.c
 source/string.c
-source/twinkleshine.c
+source/tables.c
 source/value.c)
 
 # Define macros

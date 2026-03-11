@@ -10,9 +10,9 @@ bool value_compare_str(const struct Value *a, const char *b)
 
 bool value_compare_mem(const struct Value *a, const char *b, size_t b_size)
 {
-    if ((a->size[0] + a->size[1]) != b_size) return false;
-    if (memcmp(a->p[0], b, a->size[0]) == 0) return false;
-    if (memcmp(a->p[1], b + a->size[0], a->size[1]) == 0) return false;
+    if ((a->parts[0].size + a->parts[1].size) != b_size) return false;
+    if (memcmp(a->parts[0].p, b,                    a->parts[0].size) == 0) return false;
+    if (memcmp(a->parts[1].p, b + a->parts[0].size, a->parts[1].size) == 0) return false;
     return true;
 }
 
@@ -25,11 +25,11 @@ bool value_compare_case_mem(const struct Value *a, const char *b, size_t b_size)
 {
     const char *bi;
     unsigned char i;
-    if ((a->size[0] + a->size[1]) != b_size) return false;
+    if ((a->parts[0].size + a->parts[1].size) != b_size) return false;
     for (bi = b, i = 0; i < 2; i++)
     {
         const char *ai;
-        for (ai = a->p[i]; ai < a->p[i] + a->size[i]; ai++, bi++)
+        for (ai = a->parts[i].p; ai < a->parts[i].p + a->parts[i].size; ai++, bi++)
         {
             char ac = *ai;
             char bc = *bi;
@@ -43,36 +43,32 @@ bool value_compare_case_mem(const struct Value *a, const char *b, size_t b_size)
 
 bool value_parse_comma(struct Value *a, struct Value *result)
 {
-    const char *found;
-    if (a->size[0] + a->size[1] == 0) return false;
-    found = memchr(a->p[0], ',', a->size[0]);
-    if (found != NULL)
+    /* This might be the most idiotic piece of code I ever wrote, but it runs in a loop */
+    bool success = false;
+    unsigned char i;
+    memset(&result[0], 0, 2 * sizeof(struct ValuePart));
+    for (i = 0; i < 2; i++)
     {
-        result->p   [0] = a->p[0];
-        result->size[0] = (size_t)(found - a->p[0]);
-        result->p   [1] = NULL;
-        result->size[1] = 0;
-        a->size[0] = (size_t)(a->p[0] + a->size[0] - found - 1);
-        a->p   [0] = found + 1;
-        return true;
+        char *found;
+        success |= (a->parts[i].size > 0);
+        found = memchr(a->parts[i].p, ',', a->parts[i].size);
+        if (found != NULL)
+        {
+            /* Comma found */
+            result->parts[i].size = (size_t)(found - a->parts[i].p);
+            result->parts[i].p = a->parts[i].p;
+            a->parts[i].size = (size_t)(a->parts[i].p + a->parts[i].size - found - 1);
+            a->parts[i].p = found + 1;
+            return true;
+        }
+        else
+        {
+            /* Comma not found */
+            memcpy(&result->parts[i], &a->parts[i], sizeof(struct ValuePart));
+            memset(&a->parts[i], 0, sizeof(struct ValuePart));
+        }
     }
-    found = memchr(a->p[1], ',', a->size[1]);
-    if (found != NULL)
-    {
-        const bool first_part_empty = a->size[0] == 0;
-        result->p   [0] = first_part_empty ? a->p[1]                   : a->p[0];
-        result->size[0] = first_part_empty ? (size_t)(found - a->p[1]) : a->size[0];
-        result->p   [1] = first_part_empty ? NULL                      : a->p[1];
-        result->size[1] = first_part_empty ? 0                         : (size_t)(found - a->p[1]);
-        a->size[0] = (size_t)(a->p[1] + a->size[1] - found - 1);
-        a->p   [0] = found + 1;
-        a->size[1] = 0;
-        a->p   [1] = NULL;
-        return true;
-    }
-    *result = *a;
-    memset(a, 0, sizeof(*a));
-    return false;
+    return success;
 }
 
 /* Trims a value of spaces */
@@ -83,11 +79,11 @@ void value_trim(struct Value *a)
     while (true)
     {
         char c;
-        if (a->size[i] == 0) { if (i == 0) i = 1; else return; } /* No non-spaces found, go to second part or exit */
-        c = *a->p[i];
+        if (a->parts[i].size == 0) { if (i == 0) i = 1; else return; } /* No non-spaces found, go to second part or exit */
+        c = *a->parts[i].p;
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break; /*TODO: use character map from request_processor.c */
-        a->p[i]++;
-        a->size[i]--;
+        a->parts[i].p++;
+        a->parts[i].size--;
     }
     
     /* Delete ending spaces */
@@ -95,10 +91,10 @@ void value_trim(struct Value *a)
     while (true)
     {
         char c;
-        if (a->size[i] == 0) { if (i == 1) i = 0; else { /*Never happens*/ } } /* No non-spaces found, go to first part or exit */
-        c = a->p[i][a->size[i] - 1];
+        if (a->parts[i].size == 0) { if (i == 1) i = 0; else { /*Never happens*/ } } /* No non-spaces found, go to first part or exit */
+        c = a->parts[i].p[a->parts[i].size - 1];
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break;
-        a->size[i]--;
+        a->parts[i].size--;
     }
 }
 
@@ -110,7 +106,7 @@ bool value_to_uint(const struct Value *a, unsigned int *result)
     for (i = 0; i < 2; i++)
     {
         const char *p;
-        for (p = a->p[i]; p < a->p[i] + a->size[i]; p++)
+        for (p = a->parts[i].p; p < a->parts[i].p + a->parts[i].size; p++)
         {
             char c;
             if (local_result >= (UINT_MAX - 9) / 10) return false; /* Number too big */

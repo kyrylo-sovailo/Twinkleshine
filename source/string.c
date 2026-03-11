@@ -370,7 +370,7 @@ struct Error *string_internal_vprintf_end(struct CharBuffer *string, bool suppre
         {
             /* 3 = log(8)/log(2). Skipping whole logarithm stuff. Also add 8 for safety */
             char *end;
-            size_t estimated_size = (8 * sizeof(size_t) / 3 + 8) + (precision_present ? precision : 0);
+            size_t estimated_size = (8 * sizeof(size_t) / 3 + 8); if (precision_present) estimated_size += precision;
             if (width_present && width > estimated_size) estimated_size = width;
             if (!string_vprintf_end_internal_reserve(string, estimated_size)) { va_end(va); return suppress_errors ? PANIC : error_internal_allocate(ERROR_FORMAT()); }
             end = string->p + string->size;
@@ -495,6 +495,7 @@ struct Error *string_internal_vprintf_end(struct CharBuffer *string, bool suppre
                 int *value = va_arg(va, int*);
                 *value = (int)string->size;
             }
+            printed = 0;
         }
         else if ((specifier == 'p')
             && (length == LENGTH_NONE))
