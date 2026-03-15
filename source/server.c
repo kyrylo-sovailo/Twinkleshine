@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -170,7 +171,7 @@ static struct Error *client_process_data(int *error_flags, struct Client *client
     *error_flags |=  ERF_FATAL;
     PRET(ring_pop(&client->input_buffer, client->parser.offset)); /* Failure -> fatal */
     *error_flags &= ~ERF_FATAL;
-    memset(&client->parser, 0, sizeof(client->parser));
+    if (!client->parser.request.keep_alive) memset(&client->parser, 0, sizeof(client->parser));
 
     /* Save the response to either short-term or long-term buffer */
     if (client->output_buffer.size > 0)
@@ -260,9 +261,11 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll)
         /*
         Receive if:
         - read() hasn't failed yet
+        - connection is kept alive
         - enough output buffer
         */
-        makes_sense_to_receive = (client->short_output_buffer.size + client->output_buffer.size) < MAX_OUTPUT_BUFFER_SIZE;
+        makes_sense_to_receive = client->parser.state != RPS_END
+            && (client->short_output_buffer.size + client->output_buffer.size) < MAX_OUTPUT_BUFFER_SIZE;
         if (receive_may_succeed && makes_sense_to_receive)
         {
             bool end = false, total_end = false;
@@ -274,10 +277,12 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll)
         
         /*
         Parse and process if:
+        - connection is kept alive
         - some new data arrived
         - enough output buffer
         */
-        makes_sense_to_parse = client->input_buffer.size > client->parser.offset
+        makes_sense_to_parse = client->parser.state != RPS_END
+            && client->input_buffer.size > client->parser.offset
             && (client->short_output_buffer.size + client->output_buffer.size) < MAX_OUTPUT_BUFFER_SIZE;
         if (makes_sense_to_parse)
         {
@@ -293,9 +298,10 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll)
         makes_sense_to_send = (client->short_output_buffer.size + client->output_buffer.size) > 0;
         if (send_may_succeed && makes_sense_to_send)
         {
-            bool end;
+            bool end = false;
             PGOTO(client_send_data(&error_flags, client, poll->fd, &end));
             if (end) send_may_succeed = false;
+            if (client->parser.state == RPS_END && (client->short_output_buffer.size + client->output_buffer.size) == 0) { termination = true; break; }
             done = false;
         }
 
@@ -316,8 +322,11 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll)
     {
         /* Arming triggers */
         poll->events = POLLHUP | POLLERR;
-        if ((client->short_output_buffer.size + client->output_buffer.size) < MAX_OUTPUT_BUFFER_SIZE) poll->events |= POLLIN;
-        if ((client->short_output_buffer.size + client->output_buffer.size) > 0) poll->events |= POLLOUT;
+        makes_sense_to_receive = client->parser.state != RPS_END
+            && (client->short_output_buffer.size + client->output_buffer.size) < MAX_OUTPUT_BUFFER_SIZE;
+        makes_sense_to_send = (client->short_output_buffer.size + client->output_buffer.size) > 0;
+        if (makes_sense_to_receive) poll->events |= POLLIN;
+        if (makes_sense_to_send) poll->events |= POLLOUT;
     }
     return OK;
 
@@ -386,8 +395,8 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
             surviving_poll_i++;
         }
     }
-    clients->size -= (size_t)(surviving_client_i - client_i);
-    polls->size -= (size_t)(surviving_poll_i - poll_i);
+    clients->size -= (size_t)(client_i - surviving_client_i);
+    polls->size -= (size_t)(poll_i - surviving_poll_i);
     return OK;
 }
 
