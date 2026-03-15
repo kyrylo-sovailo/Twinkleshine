@@ -20,10 +20,13 @@ void ring_finalize(struct Ring *ring);
 /* Changes ring capacity (and frees excess memory, unlike a buffer) */
 struct Error *ring_reserve(struct Ring *ring, size_t capacity);
 
-/* Allocates space for N more bytes */
-struct Error *ring_push(struct Ring *ring, size_t size) NODISCARD;
+/* Adds first N unused bytes to ring, optionally populate */
+struct Error *ring_push(struct Ring *ring, size_t size, const char *p) NODISCARD;
 
-/* Removes first N bytes */
+/* Removes last N used bytes to ring */
+struct Error *ring_unpush(struct Ring *ring, size_t size) NODISCARD;
+
+/* Removes first N used bytes */
 struct Error *ring_pop(struct Ring *ring, size_t size) NODISCARD;
 
 /* Grants access to all available bytes */

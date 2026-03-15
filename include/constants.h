@@ -70,6 +70,15 @@ Throttling and security:
     #error "Request can be larger than input buffer"
 #endif
 
+#define MIN_AVAILABLE_INPUT 4096
+#if MIN_AVAILABLE_INPUT > MAX_AVAILABLE_INPUT
+    /*
+    MIN_AVAILABLE_INPUT is how bytes must be read regardless what ioctl says
+    Serves to circumvent unreliable ioctl and to detect normal terminations
+    */
+    #error "Minimal available input is more than maximal available input"
+#endif
+
 /*
 Logging
 

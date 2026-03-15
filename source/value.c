@@ -11,8 +11,8 @@ bool value_compare_str(const struct Value *a, const char *b)
 bool value_compare_mem(const struct Value *a, const char *b, size_t b_size)
 {
     if ((a->parts[0].size + a->parts[1].size) != b_size) return false;
-    if (memcmp(a->parts[0].p, b,                    a->parts[0].size) == 0) return false;
-    if (memcmp(a->parts[1].p, b + a->parts[0].size, a->parts[1].size) == 0) return false;
+    if (memcmp(a->parts[0].p, b,                    a->parts[0].size) != 0) return false;
+    if (memcmp(a->parts[1].p, b + a->parts[0].size, a->parts[1].size) != 0) return false;
     return true;
 }
 

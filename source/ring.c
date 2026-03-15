@@ -68,10 +68,30 @@ struct Error *ring_reserve(struct Ring *ring, size_t capacity)
     return OK;
 }
 
-struct Error *ring_push(struct Ring *ring, size_t size)
+struct Error *ring_push(struct Ring *ring, size_t size, const char *p)
 {
+    struct ValueLocation location; struct Value value;
+    unsigned char i;
+
     ARET2(ring->size + size <= ring->capacity, "Cannot push %u bytes to ring with capacity %u", (unsigned int)size, (unsigned int)ring->capacity);
     ring->size += size;
+    if (p == NULL) return OK;
+    
+    location.offset = 0;
+    location.size = size;
+    PRET(ring_get(ring, &location, true, &value));
+    for (i = 0; i < 2; i++)
+    {
+        memcpy(value.parts[i].p, p, value.parts[i].size);
+        p++;
+    }
+    return OK;
+}
+
+struct Error *ring_unpush(struct Ring *ring, size_t size)
+{
+    ARET2(ring->size >= size, "Cannot unpush %u bytes from ring with size %u", (unsigned int)size, (unsigned int)ring->size);
+    ring->size -= size;
     return OK;
 }
 
@@ -84,6 +104,7 @@ struct Error *ring_pop(struct Ring *ring, size_t size)
     continuous_size_after_begin = size <= continuous_after_begin;
     ring->begin = continuous_size_after_begin ? (ring->begin + size) : (size - continuous_after_begin);
     ring->size -= size;
+    if (ring->size == 0) ring->begin = 0; /* Move to begin because why not */
     return OK;
 }
 
@@ -142,13 +163,13 @@ struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *loca
         if (continuous_size_after_offset)
         {
             value->parts[0].size = location->size;
-            value->parts[0].p = ring->p + ring->begin;
+            value->parts[0].p = ring->p + ring->begin + location->offset;
             memset(&value->parts[1], 0, sizeof(struct ValuePart));
         }
         else
         {
             value->parts[0].size = continuous_after_offset;
-            value->parts[0].p = ring->p + ring->begin;
+            value->parts[0].p = ring->p + ring->begin + location->offset;
             value->parts[1].size = location->size - continuous_after_offset;
             value->parts[1].p = ring->p;
         }
