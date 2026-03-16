@@ -1,5 +1,4 @@
 #include "../include/error.h"
-#include "../include/bool.h"
 #include "../include/output.h"
 #include "../include/path.h"
 #include "../include/string.h"

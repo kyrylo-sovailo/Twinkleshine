@@ -24,6 +24,9 @@ struct Client
     size_t shuffle_index;                   /* Index storage for shuffling, unrelated to the client */
 };
 
+void client_finalize(struct Client *client);
+void poll_finalize(struct pollfd *poll);
+
 DECLARE_BUFFER(struct Client, ClientBuffer)
 DECLARE_BUFFER_RESIZE(struct Client, ClientBuffer, clients_)
 DECLARE_BUFFER_APPEND(struct Client, ClientBuffer, clients_)

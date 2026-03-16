@@ -21,13 +21,13 @@ struct Log
     unsigned long int size;         /* Log size, bytes */
     char *path;                     /* Full file path */
 };
-static struct Log logs[MAX_TOTAL_LOG_NUMBER];   /* Array of logs, oldest first */
-static unsigned int logs_size = 0;              /* Real number of files */
-static unsigned long int logs_total_size = 0;   /* Real sum of log file sizes */
-static bool catastrophic = false;               /* Initialization failed, fall back to catastrophic output */
-static FILE *file = NULL;                       /* Opened file */
 static const char *const log_directory = "/var/log/twinkleshine/";              /* Log directory */
 static const size_t log_directory_length = sizeof("/var/log/twinkleshine/") - 1;/* Length if log directory */
+static struct Log g_logs[MAX_TOTAL_LOG_NUMBER]; /* Array of logs, oldest first */
+static unsigned int g_logs_size = 0;            /* Real number of files */
+static unsigned long int g_logs_total_size = 0; /* Real sum of log file sizes */
+static bool g_catastrophic = false;             /* Initialization failed, fall back to catastrophic output */
+static FILE *g_file = NULL;                     /* Opened file */
 
 /* Transforms global calender to global time (aka timegm) */
 static time_t global_mktime(struct tm *global_calender, time_t probe)
@@ -51,28 +51,28 @@ static bool delete(unsigned int number)
 
     for (log_i = 0; log_i < number; log_i++)
     {
-        if (unlink(logs[log_i].path) < 0) success = false;
-        free(logs[log_i].path);
-        logs[log_i].path = NULL;
-        logs_total_size -= logs[log_i].size;
+        if (unlink(g_logs[log_i].path) < 0) success = false;
+        free(g_logs[log_i].path);
+        g_logs[log_i].path = NULL;
+        g_logs_total_size -= g_logs[log_i].size;
     }
-    memmove(&logs[0], &logs[number], (logs_size - number) * sizeof(*logs));
-    logs_size -= number;
+    memmove(&g_logs[0], &g_logs[number], (g_logs_size - number) * sizeof(*g_logs));
+    g_logs_size -= number;
     return success;
 }
 
 /* Delete oldest logs until age and total size are satisfied */
 static bool cleanup(time_t global_now)
 {
-    unsigned long int logs_total_size_copy = logs_total_size;
+    unsigned long int logs_total_size_copy = g_logs_total_size;
     unsigned int log_i;
     bool success = true;
 
     /* Count how many files should be deleted to satisfy constraints */
-    for (log_i = 0; log_i < logs_size; log_i++)
+    for (log_i = 0; log_i < g_logs_size; log_i++)
     {
-        if ((global_now - logs[log_i].global_start) <= MAX_LOG_AGE && logs_total_size_copy <= MAX_TOTAL_LOG_SIZE) break;
-        logs_total_size_copy -= logs[log_i].size;
+        if ((global_now - g_logs[log_i].global_start) <= MAX_LOG_AGE && logs_total_size_copy <= MAX_TOTAL_LOG_SIZE) break;
+        logs_total_size_copy -= g_logs[log_i].size;
     }
 
     /* Delete */
@@ -87,31 +87,31 @@ static bool insert(time_t global_now, struct Log *log)
     unsigned int log_i;
 
     /* Count how many logs is the new log older than */
-    for (log_i = 0; log_i < logs_size; log_i++)
+    for (log_i = 0; log_i < g_logs_size; log_i++)
     {
-        if (log->global_start < logs[logs_size - log_i - 1].global_start) break; /* If new log is older than log i (backwards), break */
+        if (log->global_start < g_logs[g_logs_size - log_i - 1].global_start) break; /* If new log is older than log i (backwards), break */
     }
 
     /* Check if the log is really old */
-    if (log_i == logs_size)
+    if (log_i == g_logs_size)
     {
-        if (unlink(logs[log_i].path) < 0) success = false;
-        free(logs[log_i].path);
-        logs[log_i].path = NULL;
+        if (unlink(g_logs[log_i].path) < 0) success = false;
+        free(g_logs[log_i].path);
+        g_logs[log_i].path = NULL;
         return success;
     }
 
     /* Check if logs are full */
-    if (logs_size == sizeof(logs) / sizeof(*logs))
+    if (g_logs_size == sizeof(g_logs) / sizeof(*g_logs))
     {
         success &= delete(1);
     }
 
     /* Insert */
-    memmove(&logs[logs_size - log_i + 1], &logs[logs_size - log_i], log_i * sizeof(*logs));
-    logs[logs_size - log_i] = *log; /* TODO: ensure no double free is possible */
-    logs_size++;
-    logs_total_size += log->size;
+    memmove(&g_logs[g_logs_size - log_i + 1], &g_logs[g_logs_size - log_i], log_i * sizeof(*g_logs));
+    g_logs[g_logs_size - log_i] = *log; /* TODO: ensure no double free is possible */
+    g_logs_size++;
+    g_logs_total_size += log->size;
 
     /* Cleanup */
     success &= cleanup(global_now);
@@ -128,10 +128,10 @@ void output_initialize(void)
     directory = opendir(log_directory);
     if (directory == NULL)
     {
-        if (mkdir(log_directory, 0755) < 0) { catastrophic = true; return; }
+        if (mkdir(log_directory, 0755) < 0) { g_catastrophic = true; return; }
         directory = opendir(log_directory);
     }
-    if (directory == NULL) { catastrophic = true; return; }
+    if (directory == NULL) { g_catastrophic = true; return; }
 
     /* Read directory */
     for (entry = readdir(directory); entry != NULL; entry = readdir(directory))
@@ -180,7 +180,7 @@ void output_initialize(void)
         /* Read size */
         name_length = strlen(entry->d_name);
         new_log.path = malloc(log_directory_length + name_length + 1);
-        if (new_log.path == NULL) { closedir(directory); catastrophic = true; return; } /* Out of memory, fail */
+        if (new_log.path == NULL) { closedir(directory); g_catastrophic = true; return; } /* Out of memory, fail */
         memcpy(new_log.path, log_directory, log_directory_length);
         memcpy(new_log.path + log_directory_length, entry->d_name, name_length + 1);
         if (stat(new_log.path, &status) < 0) { free(new_log.path); continue; } /* Stat failed, skip */
@@ -188,11 +188,21 @@ void output_initialize(void)
         
 
         /* Insert */
-        if (!insert(global_now, &new_log)) { free(new_log.path); closedir(directory); catastrophic = true; return; } /* Insert failed, fail */
+        if (!insert(global_now, &new_log)) { free(new_log.path); closedir(directory); g_catastrophic = true; return; } /* Insert failed, fail */
         ZERO_AND_FORGET(&new_log);
     }
 
     closedir(directory);
+}
+
+void output_finalize(void)
+{
+    unsigned int log_i;
+    for (log_i = 0; log_i < g_logs_size; log_i++)
+    {
+        if (g_logs[log_i].path != NULL) free(g_logs[log_i].path);
+    }
+    if (g_file != NULL) fclose(g_file);
 }
 
 void output_open(void)
@@ -202,12 +212,12 @@ void output_open(void)
     bool create_new_log = false;
     unsigned int create_new_log_number = 0;
     
-    if (catastrophic) return;
+    if (g_catastrophic) return;
     
     /* Get time */
     global_now = time(NULL);
     p_global_now_calender = gmtime(&global_now); /* TODO: not thread-safe */
-    if (p_global_now_calender == NULL) { catastrophic = true; return; }
+    if (p_global_now_calender == NULL) { g_catastrophic = true; return; }
     global_now_calender = *p_global_now_calender;
     global_start_calender.tm_year = global_now_calender.tm_year;
     global_start_calender.tm_mon = global_now_calender.tm_mon;
@@ -215,15 +225,15 @@ void output_open(void)
     global_start = global_mktime(&global_start_calender, global_now);
 
     /* Ensure that the last log is the right log */
-    if (logs_size == 0 || logs[logs_size - 1].global_start != global_start)
+    if (g_logs_size == 0 || g_logs[g_logs_size - 1].global_start != global_start)
     {
         /* There are no logs or the last log's time does not match */
         create_new_log = true;
     }
-    else if (logs[logs_size - 1].size > MAX_LOG_SIZE)
+    else if (g_logs[g_logs_size - 1].size > MAX_LOG_SIZE)
     {
         /* There is a log with matching time, but it is already too big */
-        create_new_log_number = logs[logs_size - 1].number + 1;
+        create_new_log_number = g_logs[g_logs_size - 1].number + 1;
         create_new_log = true;
     }
     if (create_new_log)
@@ -233,26 +243,26 @@ void output_open(void)
         new_log.global_start = global_start;
         new_log.number = create_new_log_number;
         new_log.path = malloc(log_directory_length + name_length + 1);
-        if (new_log.path == NULL) { catastrophic = true; return; }
+        if (new_log.path == NULL) { g_catastrophic = true; return; }
         memcpy(new_log.path, log_directory, log_directory_length);
         sprintf(new_log.path + log_directory_length, "%u-%u-%u.log", global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
-        if (!insert(global_now, &new_log)) { free(new_log.path); catastrophic = true; return; }
+        if (!insert(global_now, &new_log)) { free(new_log.path); g_catastrophic = true; return; }
         ZERO_AND_FORGET(&new_log);
     }
 
     /* Write to the last log */
-    file = fopen(logs[logs_size - 1].path, "w");
-    if (file == NULL) { catastrophic = true; return; }
+    g_file = fopen(g_logs[g_logs_size - 1].path, "w");
+    if (g_file == NULL) { g_catastrophic = true; return; }
 }
 
 void output_close(void)
 {
     time_t global_now;
-    if (catastrophic) return; /* Catastrophic, nothing to do */
-    if (file == NULL) return; /* Already closed, nothing to do */
+    if (g_catastrophic) return; /* Catastrophic, nothing to do */
+    if (g_file == NULL) return; /* Already closed, nothing to do */
     global_now = time(NULL);
-    fclose(file);
-    file = NULL;
+    fclose(g_file);
+    g_file = NULL;
     cleanup(global_now);
 }
 
@@ -266,17 +276,17 @@ void output_print(const char *format, ...)
 
 void output_vprint(const char *format, va_list va)
 {
-    if (catastrophic)
+    if (g_catastrophic)
     {
         int result = vfprintf(stderr, format, va);
         if (result < 0) exit(1); /* Nothing can be done, fatal error */
     }
-    else if (file != NULL)
+    else if (g_file != NULL)
     {
-        int result = vfprintf(file, format, va);
-        if (result < 0) { catastrophic = true; output_print("ERROR LOST"); return; }
-        logs[logs_size - 1].size += (unsigned int)result;
-        logs_total_size += (unsigned int)result;
+        int result = vfprintf(g_file, format, va);
+        if (result < 0) { g_catastrophic = true; output_print("ERROR LOST"); return; }
+        g_logs[g_logs_size - 1].size += (unsigned int)result;
+        g_logs_total_size += (unsigned int)result;
     }
 }
 

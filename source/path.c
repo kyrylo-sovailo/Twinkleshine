@@ -1,8 +1,8 @@
 #include "../include/path.h"
 
-#include <string.h>
-
 #include <unistd.h>
+
+#include <string.h>
 
 struct CharBuffer g_application = { 0 };
 

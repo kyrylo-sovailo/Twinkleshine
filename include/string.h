@@ -6,6 +6,15 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+/*
+struct CharBuffer
+{
+    char *p;            // Buffer
+    size_t size;        // Logical size, does not include null terminator
+    size_t capacity;    // Physical size, includes null terminator
+};
+*/
+
 /* Finalizes string */
 void string_finalize(struct CharBuffer *string);
 /* Gets raw C string */

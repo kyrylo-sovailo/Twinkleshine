@@ -31,4 +31,7 @@ void request_processor_error(enum ErrorType error, struct ValuePart *response);
 /* Frees the response once it is no longer needed */
 void request_processor_free(void);
 
+/* Finalize the module */
+void request_processor_finalize(void);
+
 #endif

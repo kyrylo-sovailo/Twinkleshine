@@ -82,6 +82,7 @@ struct Error *ring_push(struct Ring *ring, size_t size, const char *p)
     PRET(ring_get(ring, &location, true, &value));
     for (i = 0; i < 2; i++)
     {
+        if (value.parts[i].size == 0) continue;
         memcpy(value.parts[i].p, p, value.parts[i].size);
         p++;
     }

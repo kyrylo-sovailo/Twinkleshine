@@ -1,25 +1,22 @@
 #include "../include/server.h"
 #include "../include/client.h"
 #include "../include/constants.h"
-#include "../include/output.h"
 #include "../include/path.h"
 #include "../include/request_parser.h"
 #include "../include/request_processor.h"
 #include "../include/ring.h"
-#include "../include/tables.h"
 
 #include <arpa/inet.h>
-#include <asm-generic/errno.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include <stdlib.h>
+#include <string.h>
 
 /* Values for error_flags */
 enum ErrorFlags
@@ -312,11 +309,8 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll)
     if (termination)
     {
         /* Normal termination */
-        if (client->short_output_buffer.size != 0) request_processor_free();
-        ring_finalize(&client->input_buffer);
-        ring_finalize(&client->output_buffer);
-        close(poll->fd);
-        poll->fd = -1;
+        client_finalize(client);
+        poll_finalize(poll);
     }
     else
     {
@@ -343,11 +337,8 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll)
     }
     if ((error_flags & ERF_CLOSE) != 0)
     {
-        if (client->short_output_buffer.size != 0) request_processor_free();
-        ring_finalize(&client->input_buffer);
-        ring_finalize(&client->output_buffer);
-        close(poll->fd);
-        poll->fd = -1;
+        client_finalize(client);
+        poll_finalize(poll);
     }
     if ((error_flags & ERF_FATAL) != 0)
     {
@@ -405,9 +396,9 @@ struct Error *server_main(int argc, char **argv)
     struct Error *error;
     struct ClientBuffer clients = { 0 };
     struct PollBuffer polls = { 0 };
+    struct Client *client_i;
+    struct pollfd *poll_i;
 
-    output_initialize();
-    tables_initialize();
     AGOTO0(argc >= 0, "Not enough arguments");
     PGOTO(path_set_application(&g_application, argv[0]));
 
@@ -422,7 +413,11 @@ struct Error *server_main(int argc, char **argv)
     error = OK;
 
     failure:
-    /* TODO: finalize */
+    for (client_i = clients.p, poll_i = polls.p + 1; client_i < clients.p + clients.size; client_i++, poll_i++) client_finalize(client_i);
+    for (poll_i = polls.p; poll_i < polls.p + polls.size; poll_i++) poll_finalize(poll_i);
+    clients_finalize(&clients);
+    polls_finalize(&polls);
+    request_processor_finalize();
     return error;
 }
 

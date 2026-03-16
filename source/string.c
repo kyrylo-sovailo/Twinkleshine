@@ -46,7 +46,7 @@ struct Error *string_resize(struct CharBuffer *string, size_t size)
     if (size + 1 > string->capacity)
     {
         char *new_p;
-        size_t new_capacity = (string->capacity < 2) ? 2 : string->capacity;
+        size_t new_capacity = (string->capacity == 0) ? 1 : string->capacity;
         while (size + 1 > new_capacity) new_capacity *= 2;
         new_p = realloc(string->p, new_capacity * sizeof(*string->p));
         ARET(new_p != NULL);
@@ -63,7 +63,7 @@ struct Error *string_reserve(struct CharBuffer *string, size_t capacity)
     if (capacity + 1 > string->capacity)
     {
         char *new_p;
-        size_t new_capacity = (string->capacity < 2) ? 2 : string->capacity;
+        size_t new_capacity = (string->capacity == 0) ? 1 : string->capacity;
         while (capacity + 1 > new_capacity) new_capacity *= 2;
         new_p = realloc(string->p, new_capacity * sizeof(*string->p));
         ARET(new_p != NULL);
@@ -168,12 +168,12 @@ struct Error *string_vprintf_end(struct CharBuffer *string, const char *format, 
 
 static bool string_vprintf_end_internal_reserve(struct CharBuffer *string, size_t estimated_size)
 {
-    const size_t capacity = string->size + estimated_size;
-    if (capacity + 1 > string->capacity)
+    const size_t size = string->size + estimated_size;
+    if (size + 1 > string->capacity)
     {
         char *new_p;
-        size_t new_capacity = (string->capacity < 2) ? 2 : string->capacity;
-        while (capacity + 1 > new_capacity) new_capacity *= 2;
+        size_t new_capacity = (string->capacity == 0) ? 1 : string->capacity;
+        while (size + 1 > new_capacity) new_capacity *= 2;
         new_p = realloc(string->p, new_capacity * sizeof(*string->p));
         if (new_p == NULL) return false;
         string->capacity = new_capacity;
@@ -195,7 +195,7 @@ static void string_vprintf_end_internal_compact(struct CharBuffer *string)
         if (new_capacity < string->capacity)
         {
             char *new_p = realloc(string->p, new_capacity);
-            if (new_p != NULL) string->p = new_p;
+            if (new_p != NULL) { string->capacity = new_capacity; string->p = new_p; }
         }
     }
 }
