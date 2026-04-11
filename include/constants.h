@@ -14,36 +14,37 @@
 /*
 Throttling and security:
 
-- 1. Max clients in queue, needed by the OS 
-- 2. Start sending 500 and closing incoming connections immediately when:
-    - 1. Maximum number of clients if reached
-    - 2. Maximum memory usage is reached
-    - 3. Maximum processor utilization is reached
+- 1. [X] Max clients in queue, needed by the OS 
+- 2. [X] Start sending 500 and closing incoming connections immediately when:
+    - 1. [X] Maximum number of clients if reached
+    - 2. [X] Maximum memory usage is reached
+    - 3. [X] Maximum processor utilization is reached
 - 3. Stop accepting data from a client when:
-    - 1. Maximum size of input buffer is reached
-    - 2. Certain size of output buffer is reached
+    - 1. [ ] Maximum size of input buffer is reached
+    - 2. [ ] Certain size of output buffer is reached
 - 4. Send client 500 and close connection when:
-    - 1. Error occurred
-    - 2. Client sent more than certain amount of data at once
-    - 3. Client promised to send a request larger than certain amount (TODO: differentiate between too large header and too large body)
-    - 4. Input buffer is incomplete for certain time
+    - 1. [ ] Error occurred
+    - 2. [ ] Client sent more than certain amount of data at once
+    - 3. [ ] Client promised to send a request larger than certain amount (TODO: differentiate between too large header and too large body)
+    - 4. [ ] Input buffer is incomplete for certain time
 - 5. Close connection without sending 500 when:
-    - 1. 4.1 but output buffer is not empty
-    - 2. 4.2 but output buffer is not empty
-    - 3. 4.3 but output buffer is not empty
-    - 4. 4.4 but output buffer is not empty
-    - 5. Input buffer is empty for a certain amount of time
-    - 6. Output buffer is full for certain time
-    - 7. Output buffer is incomplete for a certain time
+    - 1. [ ] 4.1 but output buffer is not empty
+    - 2. [ ] 4.2 but output buffer is not empty
+    - 3. [ ] 4.3 but output buffer is not empty
+    - 4. [ ] 4.4 but output buffer is not empty
+    - 5. [ ] Input buffer is empty for a certain amount of time
+    - 6. [ ] Output buffer is full for certain time
+    - 7. [ ] Output buffer is incomplete for a certain time
 */
 
 /* 1.x */
-#define MAX_CLIENTS_IN_QUEUE 16 /* 1.1 */
+#define MAX_CLIENTS_IN_QUEUE        16              /* 1.1 */
 
 /* 2.x */
 #define MAX_CLIENTS                 256             /* 2.1 */
 #define MAX_MEMORY_USAGE            (1 * GIGABYTE)  /* 2.2 */
-#define MAX_PROCESSOR_UTILIZATION   0.95            /* 2.3 */
+#define MAX_PROCESSOR_UTILIZATION   0.95f           /* 2.3 */
+#define PROCESSOR_UTILIZATION_UPD   0.05f
 
 /* 3.x */
 #define MAX_INPUT_BUFFER_SIZE       (1 * MEGABYTE)  /* 3.1 */

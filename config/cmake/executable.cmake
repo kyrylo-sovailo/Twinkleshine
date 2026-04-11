@@ -10,20 +10,23 @@ set_target_properties(twinkleshine PROPERTIES OUTPUT_NAME "twinkleshine$<$<CONFI
 
 # Define twinkleshine sources
 devtemplate_target_sources(twinkleshine PRIVATE
-source/char_buffer.c
 source/client.c
-source/error.c
-source/generic_buffer_implementation.c
 source/main.c
+source/memory.c
 source/output.c
-source/path.c
+source/random.c
 source/request_parser.c
 source/request_processor.c
 source/ring.c
 source/server.c
-source/string.c
 source/tables.c
-source/value.c)
+source/value.c
+commonlib/source/char_buffer.c
+commonlib/source/error.c
+commonlib/source/generic_buffer_implementation.c
+commonlib/source/path.c
+commonlib/source/string.c
+)
 
 # Define macros
 target_compile_definitions(twinkleshine PUBLIC

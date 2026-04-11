@@ -1,15 +1,15 @@
 #ifndef OUTPUT_H
 #define OUTPUT_H
 
-#include "macro.h"
+#include "../commonlib/include/macro.h"
 
 #include <stdarg.h>
 
 /* Initializes output module (guaranteed to succeed) */
-void output_initialize(void);
+void output_module_initialize(void);
 
 /* Finalizes output module */
-void output_finalize(void);
+void output_module_finalize(void);
 
 /* Opens error output (guaranteed to succeed) */
 void output_open(void);

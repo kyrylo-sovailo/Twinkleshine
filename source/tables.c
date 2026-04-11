@@ -8,7 +8,7 @@ unsigned char character_map[256];
 const char *months_xxx[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 const char *days_xxx[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 
-void tables_initialize(void)
+void tables_module_initialize(void)
 {
     const char *p;
     char c;

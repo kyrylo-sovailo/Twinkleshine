@@ -1,6 +1,6 @@
 #include "../include/request_processor.h"
-#include "../include/string.h"
 #include "../include/tables.h"
+#include "../commonlib/include/string.h"
 
 #include <string.h>
 #include <time.h>
@@ -61,9 +61,9 @@ static const char html_static_index_page[] =
 "</body>\n"
 "</html>\n";
 
-static struct CharBuffer buffer = { 0 };
+static struct CharBuffer buffer = ZERO_INIT;
 
-struct Error *request_processor_process(const struct Ring *input, const struct Request *request, struct ValuePart *response)
+struct Error *request_processor_process(const struct Ring *input, const struct Request *request, struct ConstValuePart *response)
 {
     struct Value resource_value;
 
@@ -89,7 +89,7 @@ struct Error *request_processor_process(const struct Ring *input, const struct R
         */
 
         /* Print HTTP header */
-        error = string_printf(&buffer, http_prototype_html,
+        error = string_print(&buffer, http_prototype_html,
             (unsigned int)sizeof(html_static_index_page) - 1,
             request->keep_alive ? "keep-alive" : "close",
             days_xxx[global_calender.tm_wday], global_calender.tm_mday, months_xxx[global_calender.tm_mon], 1900 + global_calender.tm_year,
@@ -98,7 +98,7 @@ struct Error *request_processor_process(const struct Ring *input, const struct R
         PRET(error);
 
         /* Print HTML content */
-        error = string_printf_end(&buffer, html_static_index_page);
+        error = string_print_append(&buffer, html_static_index_page);
         PRET(error);
 
         response->p = buffer.p;
@@ -106,13 +106,13 @@ struct Error *request_processor_process(const struct Ring *input, const struct R
     }
     else
     {
-        response->p = (char*)http_static_not_found; /* TODO: solve the problem with constant and not-constant value parts */
+        response->p = http_static_not_found;
         response->size = http_static_not_found_length;
     }
     return OK;
 }
 
-void request_processor_error(enum ErrorType error, struct ValuePart *response)
+void request_processor_error(enum ErrorType error, struct ConstValuePart *response)
 {
     switch (error)
     {

@@ -1,8 +1,8 @@
 #ifndef FIELD_H
 #define FIELD_H
 
-#include "bool.h"
-#include "error.h"
+#include "../commonlib/include/bool.h"
+#include "../commonlib/include/error.h"
 
 #include <stddef.h>
 
@@ -24,6 +24,19 @@ struct ValuePart
 struct Value
 {
     struct ValuePart parts[2];
+};
+
+/* Part of constant memory location */
+struct ConstValuePart
+{
+    const char *p;
+    size_t size;
+};
+
+/* Constant memory location */
+struct ConstValue
+{
+    struct ConstValuePart parts[2];
 };
 
 /* Compares two values */

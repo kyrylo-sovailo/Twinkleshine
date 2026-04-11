@@ -1,13 +1,13 @@
 #include "../include/error.h"
-#include "../include/output.h"
 #include "../include/path.h"
 #include "../include/string.h"
+#include "../../include/memory.h"
+#include "../../include/output.h"
 
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 struct Error
 {
@@ -18,14 +18,15 @@ struct Error
 struct Error *error_internal_allocate(const char *format, ...)
 {
     /* Create new error buffer */
-    struct Error *error = malloc(sizeof(*error));
+    struct Error *error = (struct Error*)count_malloc(sizeof(*error));
     if (error != NULL)
     {
         /* Print */
+        const struct Error zero = ZERO_INIT;
         va_list va;
-        memset(error, 0, sizeof(*error));
+        *error = zero;
         va_start(va, format);
-        if (string_internal_vprintf_end(&error->message, true, format, va)) {}
+        if (string_internal_vprint_append(&error->message, true, format, va)) {}
         va_end(va);
         return error;
     }
@@ -39,14 +40,15 @@ struct Error *error_internal_allocate(const char *format, ...)
 struct Error *error_internal_allocate_append(struct Error *error, const char *format, ...)
 {
     /* Create new error buffer */
-    struct Error *new_error = malloc(sizeof(*new_error));
+    struct Error *new_error = (struct Error*)count_malloc(sizeof(*new_error));
     if (new_error != NULL)
     {
         /* Print */
+        const struct Error zero = ZERO_INIT;
         va_list va;
-        memset(new_error, 0, sizeof(*new_error));
+        *error = zero;
         va_start(va, format);
-        if (string_internal_vprintf_end(&new_error->message, true, format, va)) {}
+        if (string_internal_vprint_append(&new_error->message, true, format, va)) {}
         va_end(va);
 
         /* Append */
@@ -151,10 +153,12 @@ void error_print(const struct Error *error)
             if (error_i == PANIC) break;
             error_i = error_i->next;
         }
+
+        /* Print time */
+        output_print_time();
     }
 
-    /* Print tail */
-    output_print_time();
+    /* Print trailing newline */
     output_print("\n");
     output_close();
 }
@@ -166,7 +170,7 @@ void error_finalize(struct Error *error)
         struct Error *next_error;
         string_finalize(&error->message);
         next_error = error->next;
-        free(error);
+        count_free(error, sizeof(*error));
         error = next_error;
     }
 }

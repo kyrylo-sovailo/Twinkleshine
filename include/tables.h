@@ -17,6 +17,6 @@ extern unsigned char character_map[256];
 extern const char *months_xxx[12];
 extern const char *days_xxx[7];
 
-void tables_initialize(void);
+void tables_module_initialize(void);
 
 #endif

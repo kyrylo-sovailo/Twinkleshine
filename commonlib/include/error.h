@@ -1,5 +1,7 @@
-#ifndef ERROR_H
-#define ERROR_H
+#ifndef COMMONLIB_ERROR_H
+#define COMMONLIB_ERROR_H
+
+/* Modified to support up to 4 arguments and stripped to ERROR_TRACE only */
 
 #include "bool.h"
 #include "macro.h"
@@ -33,7 +35,15 @@ struct Error;
 #define OK ((struct Error*)0)
 #define PANIC ((struct Error*)1)
 
-/* Assigns 'error' variable and goes to 'finalize' label (GOTO = goto) */
+/* Essential macros */
+#define ERROR_TYPE struct Error*
+#define ERROR_DECLARE() struct Error* error
+#define ERROR_ASSIGN(EXPRESSION) error = EXPRESSION
+#define ERROR_RETURN() { PRET(error); return OK; }
+#define ERROR_RETURN_VERBATIM() return error
+#define ERROR_RETURN_OK() return OK
+
+/* Assigns 'error' variable and goes to 'failure' label (GOTO = goto) */
 #define GOTO() { error = error_internal_allocate(ERROR_FORMAT()); goto failure; }
 #define GOTO0(FORMAT) { error = error_internal_allocate(ERROR_FORMAT_F(FORMAT)); goto failure; }
 #define GOTO1(FORMAT, A) { error = error_internal_allocate(ERROR_FORMAT_F(FORMAT), A); goto failure; }
@@ -41,7 +51,7 @@ struct Error;
 #define GOTO3(FORMAT, A, B, C) { error = error_internal_allocate(ERROR_FORMAT_F(FORMAT), A, B, C); goto failure; }
 #define GOTO4(FORMAT, A, B, C, D) { error = error_internal_allocate(ERROR_FORMAT_F(FORMAT), A, B, C, D); goto failure; }
 
-/* Assigns 'error' variable and goes to 'finalize' label if expression is false (AGOTO = assert goto) */
+/* Assigns 'error' variable and goes to 'failure' label if expression is false (AGOTO = assert goto) */
 #define AGOTO(EXPRESSION) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
 #define AGOTO0(EXPRESSION, FORMAT) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); goto failure; } }
 #define AGOTO1(EXPRESSION, FORMAT, A) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); goto failure; } }
@@ -49,7 +59,7 @@ struct Error;
 #define AGOTO3(EXPRESSION, FORMAT, A, B, C) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C); goto failure; } }
 #define AGOTO4(EXPRESSION, FORMAT, A, B, C, D) { const bool check = EXPRESSION; if (check) {} else { error = error_internal_allocate(ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C, D); goto failure; } }
 
-/* Assigns 'error' variable and goes to 'finalize' label if expression is error (PGOTO = propagate goto) */
+/* Assigns 'error' variable and goes to 'failure' label if expression is error (PGOTO = propagate goto) */
 #define PGOTO(EXPRESSION) { struct Error *check = EXPRESSION; if (check != OK) { error = error_internal_allocate_append(check, ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
 #define PGOTO0(EXPRESSION, FORMAT) { struct Error *check = EXPRESSION; if (check != OK) { error = error_internal_allocate_append(check, ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); goto failure; } }
 #define PGOTO1(EXPRESSION, FORMAT, A) { struct Error *check = EXPRESSION; if (check != OK) { error = error_internal_allocate_append(check, ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); goto failure; } }
@@ -80,6 +90,9 @@ struct Error;
 #define PRET2(EXPRESSION, FORMAT, A, B) { struct Error *check = EXPRESSION; if (check != OK) return error_internal_allocate_append(check, ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B); }
 #define PRET3(EXPRESSION, FORMAT, A, B, C) { struct Error *check = EXPRESSION; if (check != OK) return error_internal_allocate_append(check, ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C); }
 #define PRET4(EXPRESSION, FORMAT, A, B, C, D) { struct Error *check = EXPRESSION; if (check != OK) return error_internal_allocate_append(check, ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B, C, D); }
+
+/* Ignores the result of expression when it is guaranteed to succeed (PIGNORE = propagate ignore) */
+#define PIGNORE(EXPRESSION) { struct Error *check = EXPRESSION; if (check != OK) {} else {} }
 
 /* Creates error (guaranteed to succeed) */
 struct Error *error_internal_allocate(const char *format, ...) NODISCARD PRINTFLIKE(1, 2);

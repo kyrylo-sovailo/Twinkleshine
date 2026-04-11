@@ -1,10 +1,10 @@
 #ifndef REQUEST_PROCESSOR_H
 #define REQUEST_PROCESSOR_H
 
-#include "error.h"
 #include "request.h"
 #include "ring.h"
 #include "value.h"
+#include "../commonlib/include/error.h"
 
 /* Identifies the error that should be sent, if any error is sent at all */
 #define ERROR_TYPE_BITS 8
@@ -23,10 +23,10 @@ enum ErrorType
 };
 
 /* Processes request and creates response */
-struct Error *request_processor_process(const struct Ring *input, const struct Request *request, struct ValuePart *response) NODISCARD;
+struct Error *request_processor_process(const struct Ring *input, const struct Request *request, struct ConstValuePart *response) NODISCARD;
 
 /* Creates response, except that we don't have the request, only an error */
-void request_processor_error(enum ErrorType error, struct ValuePart *response);
+void request_processor_error(enum ErrorType error, struct ConstValuePart *response);
 
 /* Frees the response once it is no longer needed */
 void request_processor_free(void);

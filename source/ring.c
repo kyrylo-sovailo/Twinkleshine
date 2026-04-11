@@ -1,12 +1,13 @@
 #include "../include/ring.h"
+#include "../include/memory.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 void ring_finalize(struct Ring *ring)
 {
-    if (ring->p != NULL) free(ring->p);
-    memset(ring, 0, sizeof(*ring));
+    const struct Ring zero = ZERO_INIT;
+    if (ring->p != NULL) count_free(ring->p, ring->capacity);
+    *ring = zero;
 }
 
 struct Error *ring_reserve(struct Ring *ring, size_t capacity)
@@ -46,7 +47,7 @@ struct Error *ring_reserve(struct Ring *ring, size_t capacity)
     }
 
     /* Reallocating */
-    new_p = realloc(ring->p, new_capacity);
+    new_p = count_realloc(ring->p, ring->capacity, new_capacity);
     ARET(new_p != NULL);
     ring->p = new_p;
 
@@ -111,20 +112,18 @@ struct Error *ring_pop(struct Ring *ring, size_t size)
 
 void ring_get_all(const struct Ring *ring, struct Value *value)
 {
+    const struct Value zero = ZERO_INIT;
     size_t continuous_after_begin;
     bool continuous_size_after_begin;
-    if (ring->p == NULL)
-    {
-        memset(&value->parts[0], 0, 2 * sizeof(struct ValuePart));
-        return;
-    }
+    if (ring->p == NULL) { *value = zero; return; }
+    
     continuous_after_begin = ring->capacity - ring->begin;
     continuous_size_after_begin = ring->size <= continuous_after_begin;
     if (continuous_size_after_begin)
     {
         value->parts[0].size = ring->size;
         value->parts[0].p = ring->p + ring->begin;
-        memset(&value->parts[1], 0, sizeof(struct ValuePart));
+        value->parts[1] = zero.parts[1];
     }
     else
     {
@@ -137,11 +136,12 @@ void ring_get_all(const struct Ring *ring, struct Value *value)
 
 struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool last, struct Value *value)
 {
+    const struct Value zero = ZERO_INIT;
     size_t offset;
     size_t continuous_after_begin;
     bool continuous_offset_after_begin;
     ARET2(location->size <= ring->size, "Cannot get %u bytes from ring with size %u", (unsigned int)location->size, (unsigned int)ring->size);
-    if (location->size == 0) { memset(&value->parts[0], 0, 2 * sizeof(struct ValuePart)); return OK; }
+    if (location->size == 0) { *value = zero; return OK; }
 
     offset = last ? (ring->capacity - location->size - location->offset) : location->offset; /* Just invert it, it's that simple for now */
 
@@ -157,7 +157,7 @@ struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *loca
         {
             value->parts[0].size = location->size;
             value->parts[0].p = ring->p;
-            memset(&value->parts[1], 0, sizeof(struct ValuePart));
+            value->parts[1] = zero.parts[1];
             return OK;
         }
         continuous_size_after_offset = location->size <= continuous_after_offset;
@@ -165,7 +165,7 @@ struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *loca
         {
             value->parts[0].size = location->size;
             value->parts[0].p = ring->p + ring->begin + location->offset;
-            memset(&value->parts[1], 0, sizeof(struct ValuePart));
+            value->parts[1] = zero.parts[1];
         }
         else
         {
@@ -179,7 +179,7 @@ struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *loca
     {
         value->parts[0].size = location->size;
         value->parts[0].p = ring->p + (offset - continuous_after_begin);
-        memset(&value->parts[1], 0, sizeof(struct ValuePart)); /* Guaranteed no second rollover */
+        value->parts[1] = zero.parts[1]; /* Guaranteed no second rollover */
     }
     return OK;
 }

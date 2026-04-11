@@ -1,6 +1,8 @@
 #include "../include/output.h"
-#include "../include/bool.h"
 #include "../include/constants.h"
+#include "../include/macro.h"
+#include "../include/memory.h"
+#include "../commonlib/include/bool.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -52,7 +54,7 @@ static bool delete(unsigned int number)
     for (log_i = 0; log_i < number; log_i++)
     {
         if (unlink(g_logs[log_i].path) < 0) success = false;
-        free(g_logs[log_i].path);
+        count_free(g_logs[log_i].path, (strlen(g_logs[log_i].path) + 1) * sizeof(*g_logs[log_i].path));
         g_logs[log_i].path = NULL;
         g_logs_total_size -= g_logs[log_i].size;
     }
@@ -96,7 +98,7 @@ static bool insert(time_t global_now, struct Log *log)
     if (log_i == g_logs_size)
     {
         if (unlink(g_logs[log_i].path) < 0) success = false;
-        free(g_logs[log_i].path);
+        count_free(g_logs[log_i].path, (strlen(g_logs[log_i].path) + 1) * sizeof(*g_logs[log_i].path));
         g_logs[log_i].path = NULL;
         return success;
     }
@@ -118,7 +120,7 @@ static bool insert(time_t global_now, struct Log *log)
     return success;
 }
 
-void output_initialize(void)
+void output_module_initialize(void)
 {
     time_t global_now = time(NULL);
     DIR *directory;
@@ -137,9 +139,9 @@ void output_initialize(void)
     for (entry = readdir(directory); entry != NULL; entry = readdir(directory))
     {
         const char *p;
-        struct tm global_start_calender = { 0 };
+        struct tm global_start_calender = ZERO_INIT;
         char *next_p;
-        struct Log new_log = { 0 };
+        struct Log new_log = ZERO_INIT;
         size_t name_length;
         struct stat status;
 
@@ -179,28 +181,40 @@ void output_initialize(void)
 
         /* Read size */
         name_length = strlen(entry->d_name);
-        new_log.path = malloc(log_directory_length + name_length + 1);
+        new_log.path = count_malloc(log_directory_length + name_length + 1);
         if (new_log.path == NULL) { closedir(directory); g_catastrophic = true; return; } /* Out of memory, fail */
         memcpy(new_log.path, log_directory, log_directory_length);
         memcpy(new_log.path + log_directory_length, entry->d_name, name_length + 1);
-        if (stat(new_log.path, &status) < 0) { free(new_log.path); continue; } /* Stat failed, skip */
+        if (stat(new_log.path, &status) < 0)
+        {
+            /* Stat failed, skip */
+            count_free(new_log.path, (strlen(new_log.path) + 1) * sizeof(*new_log.path));
+            continue;
+        }
         new_log.size = (unsigned long int)status.st_size;
         
 
         /* Insert */
-        if (!insert(global_now, &new_log)) { free(new_log.path); closedir(directory); g_catastrophic = true; return; } /* Insert failed, fail */
-        ZERO_AND_FORGET(&new_log);
+        if (!insert(global_now, &new_log))
+        {
+            /* Insert failed, fail */
+            count_free(new_log.path, (strlen(new_log.path) + 1) * sizeof(*new_log.path));
+            closedir(directory);
+            g_catastrophic = true;
+            return;
+        }
+        ZERO_AND_FORGET(struct Log, new_log);
     }
 
     closedir(directory);
 }
 
-void output_finalize(void)
+void output_module_finalize(void)
 {
     unsigned int log_i;
     for (log_i = 0; log_i < g_logs_size; log_i++)
     {
-        if (g_logs[log_i].path != NULL) free(g_logs[log_i].path);
+        if (g_logs[log_i].path != NULL) count_free(g_logs[log_i].path, (strlen(g_logs[log_i].path) + 1) * sizeof(*g_logs[log_i].path));
     }
     if (g_file != NULL) fclose(g_file);
 }
@@ -208,7 +222,7 @@ void output_finalize(void)
 void output_open(void)
 {
     time_t global_now, global_start;
-    struct tm *p_global_now_calender, global_now_calender, global_start_calender = { 0 };
+    struct tm *p_global_now_calender, global_now_calender, global_start_calender = ZERO_INIT;
     bool create_new_log = false;
     unsigned int create_new_log_number = 0;
     
@@ -238,16 +252,21 @@ void output_open(void)
     }
     if (create_new_log)
     {
-        struct Log new_log = { 0 };
+        struct Log new_log = ZERO_INIT;
         const size_t name_length = strlen("YYYY-MM-DD.log");
         new_log.global_start = global_start;
         new_log.number = create_new_log_number;
-        new_log.path = malloc(log_directory_length + name_length + 1);
+        new_log.path = count_malloc(log_directory_length + name_length + 1);
         if (new_log.path == NULL) { g_catastrophic = true; return; }
         memcpy(new_log.path, log_directory, log_directory_length);
         sprintf(new_log.path + log_directory_length, "%u-%u-%u.log", global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
-        if (!insert(global_now, &new_log)) { free(new_log.path); g_catastrophic = true; return; }
-        ZERO_AND_FORGET(&new_log);
+        if (!insert(global_now, &new_log))
+        {
+            count_free(new_log.path, (strlen(new_log.path) + 1) * sizeof(*new_log.path));
+            g_catastrophic = true;
+            return;
+        }
+        ZERO_AND_FORGET(struct Log, new_log);
     }
 
     /* Write to the last log */

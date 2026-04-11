@@ -1,8 +1,8 @@
 #ifndef RING_H
 #define RING_H
 
-#include "error.h"
 #include "value.h"
+#include "../commonlib/include/error.h"
 
 #include <stddef.h>
 
