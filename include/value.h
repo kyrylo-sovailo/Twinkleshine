@@ -6,6 +6,8 @@
 
 #include <stddef.h>
 
+#define VALUE_PARTS 2
+
 /* Specification of a not null-terminated memory location inside a container */
 struct ValueLocation
 {
@@ -23,7 +25,7 @@ struct ValuePart
 /* Memory location */
 struct Value
 {
-    struct ValuePart parts[2];
+    struct ValuePart parts[VALUE_PARTS];
 };
 
 /* Part of constant memory location */
@@ -36,7 +38,7 @@ struct ConstValuePart
 /* Constant memory location */
 struct ConstValue
 {
-    struct ConstValuePart parts[2];
+    struct ConstValuePart parts[VALUE_PARTS];
 };
 
 /* Compares two values */
@@ -53,7 +55,17 @@ bool value_parse_comma(struct Value *a, struct Value *result) NODISCARD;
 /* Trims a value of spaces */
 void value_trim(struct Value *a);
 
-/* Converts  */
+/* Converts string to unsigned integer value */
 bool value_to_uint(const struct Value *a, unsigned int *result) NODISCARD;
+
+/* Convenience functions */
+size_t value_size(const struct Value *value);
+size_t value_const_size(const struct ConstValue *value);
+void value_read(const struct Value *value, char *destination);
+void value_write(const struct Value *value, const char *source);
+
+/* Conversion to constant values */
+void value_to_const_value(struct ConstValue *const_value, const struct Value *value);
+void value_to_const_value_part(struct ConstValuePart *const_part, const struct ValuePart *part);
 
 #endif

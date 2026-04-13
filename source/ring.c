@@ -69,47 +69,6 @@ struct Error *ring_reserve(struct Ring *ring, size_t capacity)
     return OK;
 }
 
-struct Error *ring_push(struct Ring *ring, size_t size, const char *p)
-{
-    struct ValueLocation location; struct Value value;
-    unsigned char i;
-
-    ARET2(ring->size + size <= ring->capacity, "Cannot push %u bytes to ring with capacity %u", (unsigned int)size, (unsigned int)ring->capacity);
-    ring->size += size;
-    if (p == NULL) return OK;
-    
-    location.offset = 0;
-    location.size = size;
-    PRET(ring_get(ring, &location, true, &value));
-    for (i = 0; i < 2; i++)
-    {
-        if (value.parts[i].size == 0) continue;
-        memcpy(value.parts[i].p, p, value.parts[i].size);
-        p++;
-    }
-    return OK;
-}
-
-struct Error *ring_unpush(struct Ring *ring, size_t size)
-{
-    ARET2(ring->size >= size, "Cannot unpush %u bytes from ring with size %u", (unsigned int)size, (unsigned int)ring->size);
-    ring->size -= size;
-    return OK;
-}
-
-struct Error *ring_pop(struct Ring *ring, size_t size)
-{
-    size_t continuous_after_begin;
-    bool continuous_size_after_begin;
-    ARET2(ring->size >= size, "Cannot pop %u bytes from ring with size %u", (unsigned int)size, (unsigned int)ring->size);
-    continuous_after_begin = ring->capacity - ring->begin;
-    continuous_size_after_begin = size <= continuous_after_begin;
-    ring->begin = continuous_size_after_begin ? (ring->begin + size) : (size - continuous_after_begin);
-    ring->size -= size;
-    if (ring->size == 0) ring->begin = 0; /* Move to begin because why not */
-    return OK;
-}
-
 void ring_get_all(const struct Ring *ring, struct Value *value)
 {
     const struct Value zero = ZERO_INIT;
@@ -181,5 +140,61 @@ struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *loca
         value->parts[0].p = ring->p + (offset - continuous_after_begin);
         value->parts[1] = zero.parts[1]; /* Guaranteed no second rollover */
     }
+    return OK;
+}
+
+struct Error *ring_push(struct Ring *ring, size_t size)
+{
+    ARET2(ring->size + size <= ring->capacity, "Cannot push %u bytes to ring with capacity %u", (unsigned int)size, (unsigned int)ring->capacity);
+    ring->size += size;
+    return OK;
+}
+
+struct Error *ring_push_write(struct Ring *ring, size_t size, const char *p)
+{
+    struct Value value;
+    PRET(ring_push_get(ring, size, &value));
+    value_write(&value, p);
+    return OK;
+}
+
+struct Error *ring_push_get(struct Ring *ring, size_t size, struct Value *value)
+{
+    struct ValueLocation location;
+    PRET(ring_push(ring, size));
+    location.offset = 0;
+    location.size = size;
+    PRET(ring_get(ring, &location, true, value));
+    return OK;
+}
+
+struct Error *ring_pop(struct Ring *ring, size_t size)
+{
+    size_t continuous_after_begin;
+    bool continuous_size_after_begin;
+    ARET2(ring->size >= size, "Cannot pop %u bytes from ring with size %u", (unsigned int)size, (unsigned int)ring->size);
+    continuous_after_begin = ring->capacity - ring->begin;
+    continuous_size_after_begin = size <= continuous_after_begin;
+    ring->begin = continuous_size_after_begin ? (ring->begin + size) : (size - continuous_after_begin);
+    ring->size -= size;
+    if (ring->size == 0) ring->begin = 0; /* Move to begin because why not */
+    return OK;
+}
+
+struct Error *ring_pop_read(struct Ring *ring, size_t size, char *p)
+{
+    struct ValueLocation location; struct Value value;
+    location.offset = 0;
+    location.size = size;
+    PRET(ring_get(ring, &location, false, &value));
+    value_read(&value, p);
+    PRET(ring_pop(ring, size));
+    return OK;
+}
+
+struct Error *ring_unpush(struct Ring *ring, size_t size)
+{
+    ARET2(ring->size >= size, "Cannot unpush %u bytes from ring with size %u", (unsigned int)size, (unsigned int)ring->size);
+    ring->size -= size;
     return OK;
 }

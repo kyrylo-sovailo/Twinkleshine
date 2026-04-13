@@ -285,7 +285,7 @@ struct Error *request_parser_parse(struct RequestParser *parser, const struct Ri
     unused_location.offset = parser->offset;
     unused_location.size = input->size - parser->offset;
     PRET(ring_get(input, &unused_location, false, &unused));
-    for (i = 0; i < 2; i++)
+    for (i = 0; i < VALUE_PARTS; i++)
     {
         PRET(request_parser_part(parser, input, &unused.parts[i]));
     }

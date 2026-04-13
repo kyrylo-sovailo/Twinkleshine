@@ -10,9 +10,13 @@ bool value_compare_str(const struct Value *a, const char *b)
 
 bool value_compare_mem(const struct Value *a, const char *b, size_t b_size)
 {
-    if ((a->parts[0].size + a->parts[1].size) != b_size) return false;
-    if (memcmp(a->parts[0].p, b,                    a->parts[0].size) != 0) return false;
-    if (memcmp(a->parts[1].p, b + a->parts[0].size, a->parts[1].size) != 0) return false;
+    unsigned char i;
+    if (value_size(a) != b_size) return false;
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        if (memcmp(a->parts[i].p, b, a->parts[i].size) != 0) return false;
+        b += a->parts[i].size;
+    }
     return true;
 }
 
@@ -25,8 +29,8 @@ bool value_compare_case_mem(const struct Value *a, const char *b, size_t b_size)
 {
     const char *bi;
     unsigned char i;
-    if ((a->parts[0].size + a->parts[1].size) != b_size) return false;
-    for (bi = b, i = 0; i < 2; i++)
+    if (value_size(a) != b_size) return false;
+    for (bi = b, i = 0; i < VALUE_PARTS; i++)
     {
         const char *ai;
         for (ai = a->parts[i].p; ai < a->parts[i].p + a->parts[i].size; ai++, bi++)
@@ -44,10 +48,11 @@ bool value_compare_case_mem(const struct Value *a, const char *b, size_t b_size)
 bool value_parse_comma(struct Value *a, struct Value *result)
 {
     /* This might be the most idiotic piece of code I ever wrote, but it runs in a loop */
+    const struct Value zero = ZERO_INIT;
     bool success = false;
     unsigned char i;
-    memset(&result[0], 0, 2 * sizeof(struct ValuePart));
-    for (i = 0; i < 2; i++)
+    *result = zero;
+    for (i = 0; i < VALUE_PARTS; i++)
     {
         char *found;
         success |= (a->parts[i].size > 0);
@@ -64,22 +69,21 @@ bool value_parse_comma(struct Value *a, struct Value *result)
         else
         {
             /* Comma not found */
-            memcpy(&result->parts[i], &a->parts[i], sizeof(struct ValuePart));
-            memset(&a->parts[i], 0, sizeof(struct ValuePart));
+            result->parts[i] = a->parts[i];
+            a->parts[i] = zero.parts[i];
         }
     }
     return success;
 }
 
-/* Trims a value of spaces */
 void value_trim(struct Value *a)
 {
     /* Delete beginning spaces */
-    unsigned char i = 0;
-    while (true)
+    unsigned char i;
+    for (i = 0;;)
     {
         char c;
-        if (a->parts[i].size == 0) { if (i == 0) i = 1; else return; } /* No non-spaces found, go to second part or exit */
+        while (a->parts[i].size == 0) { i++; if (i == VALUE_PARTS) return; } /* No non-spaces found, go to second part or exit */
         c = *a->parts[i].p;
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break; /*TODO: use character map from request_processor.c */
         a->parts[i].p++;
@@ -87,23 +91,21 @@ void value_trim(struct Value *a)
     }
     
     /* Delete ending spaces */
-    i = 1;
-    while (true)
+    for (i = VALUE_PARTS - 1;;)
     {
         char c;
-        if (a->parts[i].size == 0) { if (i == 1) i = 0; else { /*Never happens*/ } } /* No non-spaces found, go to first part or exit */
+        while (a->parts[i].size == 0) i--; /* No non-spaces found, go to first part or exit (no boundary check because it must find non-space) */
         c = a->parts[i].p[a->parts[i].size - 1];
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break;
         a->parts[i].size--;
     }
 }
 
-/* Converts  */
 bool value_to_uint(const struct Value *a, unsigned int *result)
 {
     unsigned int local_result = 0;
     unsigned char i;
-    for (i = 0; i < 2; i++)
+    for (i = 0; i < VALUE_PARTS; i++)
     {
         const char *p;
         for (p = a->parts[i].p; p < a->parts[i].p + a->parts[i].size; p++)
@@ -117,4 +119,56 @@ bool value_to_uint(const struct Value *a, unsigned int *result)
     }
     *result = local_result;
     return true;
+}
+
+void value_to_const_value(struct ConstValue *const_value, const struct Value *value)
+{
+    unsigned char i;
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        const_value->parts[i].p = value->parts[i].p;
+        const_value->parts[i].size = value->parts[i].size;
+    }
+}
+
+void value_to_const_value_part(struct ConstValuePart *const_part, const struct ValuePart *part)
+{
+    const_part->p = part->p;
+    const_part->size = part->size;
+}
+
+size_t value_size(const struct Value *value)
+{
+    size_t sum = 0;
+    unsigned char i;
+    for (i = 0; i < VALUE_PARTS; i++) sum += value->parts[i].size;
+    return sum;
+}
+
+size_t value_const_size(const struct ConstValue *value)
+{
+    size_t sum = 0;
+    unsigned char i;
+    for (i = 0; i < VALUE_PARTS; i++) sum += value->parts[i].size;
+    return sum;
+}
+
+void value_read(const struct Value *value, char *destination)
+{
+    unsigned char i;
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        memcpy(destination, value->parts[i].p, value->parts[i].size);
+        destination += value->parts[i].size;
+    }
+}
+
+void value_write(const struct Value *value, const char *source)
+{
+    unsigned char i;
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        memcpy(value->parts[i].p, source, value->parts[i].size);
+        source += value->parts[i].size;
+    }
 }

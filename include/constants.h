@@ -24,7 +24,7 @@ Throttling and security:
     - 2. [ ] Certain size of output buffer is reached
 - 4. Send client 500 and close connection when:
     - 1. [ ] Error occurred
-    - 2. [ ] Client sent more than certain amount of data at once
+    - 2. [X] Client sent more than certain amount of data at once
     - 3. [ ] Client promised to send a request larger than certain amount (TODO: differentiate between too large header and too large body)
     - 4. [ ] Input buffer is incomplete for certain time
 - 5. Close connection without sending 500 when:

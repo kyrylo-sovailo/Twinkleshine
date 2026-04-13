@@ -11,11 +11,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <stdbool.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,22 +35,71 @@ enum ErrorFlags
 /* First N sockets are reserved, polls is N entries longer than clients */
 #define RESERVED_SOCKETS 1
 
-/* Sends the given value */
-static struct Error *send_value(struct ConstValue *value, int fd, bool *end) NODISCARD;
-static struct Error *send_value(struct ConstValue *value, int fd, bool *end)
+/* Check whether timeout is still in the future and update remaining time if so */
+static bool check_timeout(time_t timeout, time_t now, int *remaining)
 {
+    if (timeout >= now)
+    {
+        return false;
+    }
+    else
+    {
+        const int local_remaining = (int)(timeout - now);
+        if (local_remaining < *remaining) *remaining = local_remaining;
+        return true;
+    }
+}
+
+/* Sends the given value */
+static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not_all) NODISCARD;
+static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not_all)
+{
+    /* sent_not_all is a bit redundant because one may just check value size, but I'll keep the flag style to be similar with receive_value() */
     unsigned char i;
-    for (i = 0; i < 2; i++)
+    for (i = 0; i < VALUE_PARTS; i++)
     {
         ssize_t signed_sent; size_t sent;
         if (value->parts[i].size == 0) continue;
         signed_sent = send(fd, value->parts[i].p, value->parts[i].size, 0);
-        ARET0(signed_sent >= 0 || errno == EAGAIN || errno == EWOULDBLOCK, "send() failed"); /* Failure -> close */
+        ARET0(signed_sent >= 0 || errno == EAGAIN || errno == EWOULDBLOCK, "send() failed"); /* Failure -> close/log (decided on higher level) */
         sent = (signed_sent >= 0) ? (size_t)signed_sent : 0;
         value->parts[i].p += sent;
         value->parts[i].size -= sent;
-        if (value->parts[i].size > 0) { *end = true; break; }
+        if (value->parts[i].size > 0) { *sent_not_all = true; break; }
     }
+    return OK;
+}
+
+/* Receives the given amount of bytes to ring */
+static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, size_t size, bool *received_not_all, bool *received_zero) NODISCARD;
+static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, size_t size, bool *received_not_all, bool *received_zero)
+{
+    struct Value value;
+    unsigned char i;
+
+    /* Get buffer */
+    PRET(ring_reserve(ring, ring->size + size)); /* Failure -> close */
+    *error_flags |=  ERF_FATAL;
+    PRET(ring_push_get(ring, size, &value)); /* Failure -> fatal */
+    *error_flags &= ~ERF_FATAL;
+
+    /* Receive */
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        ssize_t signed_received; size_t received;
+        if (value.parts[i].size == 0) continue;
+        signed_received = read(fd, value.parts[i].p, value.parts[i].size);
+        ARET0(signed_received >= 0, "read() failed"); /* Failure -> close */
+        received = (size_t)signed_received;
+        value.parts[i].p += received;
+        value.parts[i].size -= received;
+        if (value.parts[i].size > 0) { *received_not_all = true; *received_zero = (received == 0); break; }
+    }
+
+    /* Check for unused buffer */
+    *error_flags |=  ERF_FATAL;
+    PRET(ring_unpush(ring, value_size(&value))); /* Failure -> fatal */
+    *error_flags &= ~ERF_FATAL;
     return OK;
 }
 
@@ -59,10 +110,10 @@ static void send_low_resources(int fd, bool max_clients, bool max_memory, bool m
     struct ConstValue response = ZERO_INIT;
     enum ErrorType reason;
     bool sent_not_all = false;
-    (void)max_clients;
-    if (max_memory) reason = ERR_MAX_MEMORY;
+    if (max_clients) reason = ERR_MAX_CLIENTS;
+    else if (max_memory) reason = ERR_MAX_MEMORY;
     else if (max_utilization) reason = ERR_MAX_UTILIZATION;
-    else reason = ERR_MAX_CLIENTS;
+    else reason = ERR_UNKNOWN;
     request_processor_error(reason, &response.parts[0]);
     PGOTO(send_value(&response, fd, &sent_not_all)); /* Failure -> log (locally) */
     AGOTO(!sent_not_all); /* Failure -> log (locally) */
@@ -93,7 +144,7 @@ static struct Error *create_listening_sockets(struct PollBuffer *polls)
     return OK;
 
     failure:
-    if (new_poll.fd >= 0) close(new_poll.fd);
+    poll_finalize(&new_poll);
     return error;
 }
 
@@ -134,18 +185,16 @@ static struct Error *process_listening_sockets(struct ClientBuffer *clients, str
     return OK;
 
     failure:
-    if (new_poll.fd >= 0) close(new_poll.fd);
-    clients->size = polls->size - RESERVED_SOCKETS;
+    poll_finalize(&new_poll);
+    clients->size = polls->size - RESERVED_SOCKETS; /* No finalizer because nothing is allocated */
     return error;
 }
 
-/* Allocates client's input buffer and reads data into it */
-static struct Error *client_receive_data(int *error_flags, struct Client *client, int fd, bool *received_not_all, bool *received_zero) NODISCARD;
-static struct Error *client_receive_data(int *error_flags, struct Client *client, int fd, bool *received_not_all, bool *received_zero)
+/* Allocates client's input buffer and reads MIN_AVAILABLE_INPUT to MAX_INPUT_BUFFER_SIZE bytes of data into it */
+static struct Error *client_receive_data(int *error_flags, struct Client *client, int fd, time_t now, bool *received_not_all, bool *received_zero) NODISCARD;
+static struct Error *client_receive_data(int *error_flags, struct Client *client, int fd, time_t now, bool *received_not_all, bool *received_zero)
 {
     int signed_available; size_t available;
-    struct ValueLocation location; struct Value value;
-    unsigned char i;
 
     /* Get how much data is available and allocate buffer */
     ARET0(ioctl(fd, FIONREAD, &signed_available) >= 0, "ioctl() failed"); /* Failure -> close */
@@ -156,52 +205,44 @@ static struct Error *client_receive_data(int *error_flags, struct Client *client
     *error_flags &= ~(ERF_MESSAGE | ERR_TOO_FAST);
     if (available < MIN_AVAILABLE_INPUT) available = MIN_AVAILABLE_INPUT;
     if (available > MAX_INPUT_BUFFER_SIZE - client->input_buffer.size) available = MAX_INPUT_BUFFER_SIZE - client->input_buffer.size;
-    PRET(ring_reserve(&client->input_buffer, client->input_buffer.size + available)); /* Failure -> close */
 
     /* Read data into buffer */
-    location.offset = 0;
-    location.size = available;
+    PRET(receive_value(error_flags, &client->input_buffer, fd, available, received_not_all, received_zero));
+    if (client->input_buffer.size > 0) client->last_input_not_empty = now;
+    return OK;
+}
+
+/* Flushes short output buffer into long output buffer */
+static struct Error *client_push_to_long_output_buffer(int *error_flags, struct Client *client, const struct ConstValuePart *data) NODISCARD;
+static struct Error *client_push_to_long_output_buffer(int *error_flags, struct Client *client, const struct ConstValuePart *data)
+{
+    PRET(ring_reserve(&client->output_buffer, client->output_buffer.size + data->size)); /* Failure -> close */
+    PRET(ring_reserve(&client->output_size_buffer, client->output_size_buffer.size + sizeof(data->size))); /* Failure -> close */
     *error_flags |=  ERF_FATAL;
-    PRET(ring_push(&client->input_buffer, available, NULL)); /* Failure -> fatal */
-    PRET(ring_get(&client->input_buffer, &location, true, &value)); /* Failure -> fatal */
-    *error_flags &= ~ERF_FATAL;
-    for (i = 0; i < 2; i++)
-    {
-        ssize_t signed_received; size_t received;
-        if (value.parts[i].size == 0) continue;
-        signed_received = read(fd, value.parts[i].p, value.parts[i].size);
-        ARET0(signed_received >= 0, "read() failed"); /* Failure -> close */
-        received = (size_t)signed_received;
-        value.parts[i].p += received;
-        value.parts[i].size -= received;
-        if (value.parts[i].size > 0) { *received_not_all = true; *received_zero = (received == 0); break; }
-    }
-    *error_flags |=  ERF_FATAL;
-    PRET(ring_unpush(&client->input_buffer, value.parts[0].size + value.parts[1].size)); /* Failure -> fatal */
+    PRET(ring_push_write(&client->output_buffer, data->size, data->p)); /* Failure -> fatal */
+    PRET(ring_push_write(&client->output_size_buffer, sizeof(data->size), (const char*)&data->size)); /* Failure -> fatal */
     *error_flags &= ~ERF_FATAL;
     return OK;
 }
 
-/* Parse the data in the input buffer, try to sent it, and put in the output buffer if failed */
-static struct Error *client_process_data(int *error_flags, struct Client *client) NODISCARD;
-static struct Error *client_process_data(int *error_flags, struct Client *client)
+/* Parses the data in the input buffer, and if the request is complete, processes it and pushes into output buffer */
+static struct Error *client_process_data(int *error_flags, struct Client *client, time_t now) NODISCARD;
+static struct Error *client_process_data(int *error_flags, struct Client *client, time_t now)
 {
     struct ConstValuePart response;
 
-    /* Parse request */
+    /* Parse request, quit if the request is incomplete */
     *error_flags |=  (ERF_MESSAGE | ERR_PARSING_FAILED);
     PRET(request_parser_parse(&client->parser, &client->input_buffer)); /* Failure -> send ERR_TOO_LARGE/ERR_PARSING_FAILED and close */
     *error_flags &= ~(ERF_MESSAGE | ERR_PARSING_FAILED);
     if (client->parser.state != RPS_END) return OK;
+    client->last_input_complete = now;
 
-    /* Flush short output buffer to long output buffer */
+    /* Flush short output buffer to long output buffer because we are about to get another portion of data to send */
     if (client->short_output_buffer.size > 0)
     {
         const struct ConstValuePart zero = ZERO_INIT;
-        PRET(ring_reserve(&client->output_buffer, client->output_buffer.size + client->short_output_buffer.size)); /* Failure -> close */
-        *error_flags |=  ERF_FATAL;
-        PRET(ring_push(&client->output_buffer, client->short_output_buffer.size, client->short_output_buffer.p)); /* Failure -> fatal */
-        *error_flags &= ~ERF_FATAL;
+        PRET(client_push_to_long_output_buffer(error_flags, client, &client->short_output_buffer));
         client->short_output_buffer = zero;
         request_processor_free();
     }
@@ -213,68 +254,119 @@ static struct Error *client_process_data(int *error_flags, struct Client *client
     *error_flags |=  ERF_FATAL;
     PRET(ring_pop(&client->input_buffer, client->parser.offset)); /* Failure -> fatal */
     *error_flags &= ~ERF_FATAL;
-    if (!client->parser.request.keep_alive) { const struct RequestParser zero = ZERO_INIT; client->parser = zero; }
 
     /* Save the response to either short-term or long-term buffer */
     if (client->output_buffer.size > 0)
     {
-        PRET(ring_reserve(&client->output_buffer, client->output_buffer.size + response.size)); /* Failure -> close */
-        *error_flags |=  ERF_FATAL;
-        PRET(ring_push(&client->output_buffer, response.size, response.p)); /* Failure -> fatal */
-        *error_flags &= ~ERF_FATAL;
+        PRET(client_push_to_long_output_buffer(error_flags, client, &client->short_output_buffer));
         request_processor_free();
     }
     else
     {
         client->short_output_buffer = response;
     }
+
+    /* Reset parser for future data */
+    if (!client->parser.request.keep_alive) { const struct RequestParser zero = ZERO_INIT; client->parser = zero; }
+    return OK;
+}
+
+/* Sends short-term output buffer */
+static struct Error *client_send_short_output_buffer(struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
+static struct Error *client_send_short_output_buffer(struct Client *client, int fd, time_t now, bool *sent_not_all)
+{
+    struct ConstValue value = ZERO_INIT;
+    value.parts[0] = client->short_output_buffer;
+    PRET(send_value(&value, fd, sent_not_all)); /* Failure -> close */
+    client->short_output_buffer = value.parts[0];
+    if (value.parts[0].size == 0)
+    {
+        client->last_output_complete = now;
+        request_processor_free();
+    }
+    return OK;
+}
+
+/* Retrieves long-term output buffer */
+static struct Error *client_send_long_output_buffer(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
+static struct Error *client_send_long_output_buffer(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all)
+{
+    struct ConstValue value; struct Value nonconst_value;
+    size_t old_value_size, new_value_size, sent_size;
+    
+    /* Send */
+    ring_get_all(&client->output_buffer, &nonconst_value);
+    value_to_const_value(&value, &nonconst_value);
+    old_value_size = value_const_size(&value);
+    PRET(send_value(&value, fd, sent_not_all)); /* Failure -> close */
+    new_value_size = value_const_size(&value);
+    sent_size = old_value_size - new_value_size;
+    *error_flags |=  ERF_FATAL;
+    PRET(ring_pop(&client->output_buffer, sent_size)); /* Failure -> fatal */
+    *error_flags &= ~ERF_FATAL;
+
+    /* Detect sending of a response */
+    while (sent_size > 0)
+    {
+        size_t response_size;
+        const struct ValueLocation location = { 0, sizeof(response_size) };
+        *error_flags |=  ERF_FATAL;
+        PRET(ring_get(&client->output_size_buffer, &location, false, &nonconst_value)); /* Failure -> fatal */
+        *error_flags &= ~ERF_FATAL;
+        value_read(&nonconst_value, (char*)&response_size);
+        if (sent_size >= response_size)
+        {
+            *error_flags |=  ERF_FATAL;
+            PRET(ring_pop(&client->output_size_buffer, sizeof(response_size))); /* Failure -> fatal */
+            *error_flags &= ~ERF_FATAL;
+            client->last_output_complete = now;
+            sent_size -= response_size;
+        }
+        else
+        {
+            response_size -= sent_size;
+            value_write(&nonconst_value, (const char*)&response_size);
+            sent_size = 0;
+        }
+    }
     return OK;
 }
 
 /* Sends the client's output buffer */
-static struct Error *client_send_data(int *error_flags, struct Client *client, int fd, bool *sent_not_all) NODISCARD;
-static struct Error *client_send_data(int *error_flags, struct Client *client, int fd, bool *sent_not_all)
+static struct Error *client_send_data(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
+static struct Error *client_send_data(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all)
 {
     if (client->short_output_buffer.size > 0)
     {
-        /* Using short-term buffer */
-        struct ConstValue value = ZERO_INIT;
-        value.parts[0] = client->short_output_buffer;
-        PRET(send_value(&value, fd, sent_not_all)); /* Failure -> close */
-        client->short_output_buffer = value.parts[0];
-        if (value.parts[0].size == 0) request_processor_free();
+        PRET(client_send_short_output_buffer(client, fd, now, sent_not_all));
     }
-    else
+    if (!*sent_not_all && client->output_buffer.size > 0)
     {
-        /* Using long-term buffer */
-        struct ConstValue value;
-        struct Value nonconst_value;
-        size_t initial_value_size;
-        unsigned char i;
-        ring_get_all(&client->output_buffer, &nonconst_value);
-        for (i = 0; i < 2; i++) { value.parts[i].p = nonconst_value.parts[i].p; value.parts[i].size = nonconst_value.parts[i].size; }
-        initial_value_size = value.parts[0].size + value.parts[1].size;
-        PRET(send_value(&value, fd, sent_not_all)); /* Failure -> close */
-        *error_flags |=  ERF_FATAL;
-        PRET(ring_pop(&client->output_buffer, initial_value_size - (value.parts[0].size + value.parts[1].size))); /* Failure -> fatal */
-        *error_flags &= ~ERF_FATAL;
+        PRET(client_send_long_output_buffer(error_flags, client, fd, now, sent_not_all));
     }
     return OK;
 }
 
 /* Processes client, call when revents has something to it */
-static struct Error *client_process(struct Client *client, struct pollfd *poll, time_t now) NODISCARD;
-static struct Error *client_process(struct Client *client, struct pollfd *poll, time_t now)
+static struct Error *client_process(struct Client *client, struct pollfd *poll, int *remaining, time_t now) NODISCARD;
+static struct Error *client_process(struct Client *client, struct pollfd *poll, int *remaining, time_t now)
 {
     struct Error *error;
     int error_flags = ERROR_FLAGS_DEFAULT;
     bool receive_may_succeed, send_may_succeed;
     bool makes_sense_to_receive, makes_sense_to_parse, makes_sense_to_send;
     bool done, termination;
-    (void)now;
 
     /* Check if connection failed */
     AGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed"); /* Failure -> close */
+
+    /* Check if connection should be terminated */
+    error_flags |=  (ERF_MESSAGE | ERR_INCOMPLETE_INPUT);
+    AGOTO(check_timeout(client->last_input_complete  + MAX_INCOMPLETE_INPUT_TIME,   now, remaining)); /* Failure -> send ERR_INCOMPLETE_INPUT and close */
+    error_flags &= ~(ERF_MESSAGE | ERR_INCOMPLETE_INPUT);
+    AGOTO(check_timeout(client->last_input_not_empty + MAX_NO_INPUT_TIME,           now, remaining)); /* Failure -> close */
+    AGOTO(check_timeout(client->last_output_not_full + MAX_FULL_OUTPUT_TIME,        now, remaining)); /* Failure -> close */
+    AGOTO(check_timeout(client->last_output_complete + MAX_INCOMPLETE_OUTPUT_TIME,  now, remaining)); /* Failure -> close */
     
     /* Do everything you can */
     receive_may_succeed = !(((poll->events & POLLIN) != 0) && ((poll->revents & POLLIN) == 0));
@@ -295,7 +387,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
         if (receive_may_succeed && makes_sense_to_receive)
         {
             bool received_not_all = false, received_zero = false;
-            PGOTO(client_receive_data(&error_flags, client, poll->fd, &received_not_all, &received_zero));
+            PGOTO(client_receive_data(&error_flags, client, poll->fd, now, &received_not_all, &received_zero));
             if (received_not_all) receive_may_succeed = false;
             if (received_zero) { termination = true; break; }
             done = false;
@@ -312,7 +404,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
             && (client->short_output_buffer.size + client->output_buffer.size) < MAX_OUTPUT_BUFFER_SIZE;
         if (makes_sense_to_parse)
         {
-            PGOTO(client_process_data(&error_flags, client));
+            PGOTO(client_process_data(&error_flags, client, now));
             done = false;
         }
 
@@ -325,7 +417,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
         if (send_may_succeed && makes_sense_to_send)
         {
             bool sent_not_all = false;
-            PGOTO(client_send_data(&error_flags, client, poll->fd, &sent_not_all));
+            PGOTO(client_send_data(&error_flags, client, poll->fd, now, &sent_not_all));
             if (sent_not_all) send_may_succeed = false;
             if (client->parser.state == RPS_END && (client->short_output_buffer.size + client->output_buffer.size) == 0) { termination = true; break; }
             done = false;
@@ -343,7 +435,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
     }
     else
     {
-        /* Arming triggers */
+        /* Arm triggers */
         poll->events = POLLHUP | POLLERR;
         makes_sense_to_receive = client->parser.state != RPS_END
             && (client->short_output_buffer.size + client->output_buffer.size) < MAX_OUTPUT_BUFFER_SIZE;
@@ -377,8 +469,8 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
 }
 
 /* Processes all clients */
-static struct Error *clients_process(struct ClientBuffer *clients, struct PollBuffer *polls, clock_t *utilization_clock, double *utilization) NODISCARD;
-static struct Error *clients_process(struct ClientBuffer *clients, struct PollBuffer *polls, clock_t *utilization_clock, double *utilization)
+static struct Error *clients_process(struct ClientBuffer *clients, struct PollBuffer *polls, clock_t *utilization_clock, double *utilization, int *remaining) NODISCARD;
+static struct Error *clients_process(struct ClientBuffer *clients, struct PollBuffer *polls, clock_t *utilization_clock, double *utilization, int *remaining)
 {
     clock_t poll_begin_clock, poll_end_clock, process_end_clock;
     time_t now;
@@ -388,7 +480,7 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
 
     /* Wait for events */
     poll_begin_clock = *utilization_clock; /* Do not repeat clock() call */
-    event_number = poll(polls->p, polls->size, -1);
+    event_number = poll(polls->p, polls->size, (*remaining == INT_MAX) ? -1 : *remaining);
     ARET0(event_number >= 0, "poll() failed"); /* Failure -> fatal */
     poll_end_clock = clock();
     now = time(NULL);
@@ -397,11 +489,12 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
     PRET(process_listening_sockets(clients, polls, *utilization, now));
 
     /* Process events */
+    *remaining = INT_MAX;
     clients_shuffle(clients);
     for (client_i = clients->p; client_i < clients->p + clients->size; client_i++)
     {
         const size_t shuffle_index = client_i->shuffle_index;
-        PRET(client_process(clients->p + shuffle_index, polls->p + shuffle_index + 1, now));
+        PRET(client_process(clients->p + shuffle_index, polls->p + shuffle_index + 1, remaining, now));
     }
     clients_remove_finalized(clients, polls);
 
@@ -420,6 +513,7 @@ struct Error *server_main(int argc, char **argv)
     struct PollBuffer polls = ZERO_INIT;
     double utilization = 0.0;
     clock_t utilization_clock;
+    int remaining = INT_MAX;
 
     /* Initialize modules */
     PGOTO(path_module_initialize(argc, argv));
@@ -431,7 +525,7 @@ struct Error *server_main(int argc, char **argv)
     utilization_clock = clock();
     while (true)
     {
-        PGOTO(clients_process(&clients, &polls, &utilization_clock, &utilization));
+        PGOTO(clients_process(&clients, &polls, &utilization_clock, &utilization, &remaining));
     }
     error = OK;
 
