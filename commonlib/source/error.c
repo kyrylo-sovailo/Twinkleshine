@@ -110,7 +110,7 @@ int error_get_exit_code(const struct Error *error)
     return invalid_line + 5;
 }
 
-void error_print(const struct Error *error)
+void error_print(const struct Error *error, const struct Client *client)
 {
     const cchar_t *message;
 
@@ -119,6 +119,7 @@ void error_print(const struct Error *error)
     else message = g_application.p;
     output_open(true);
     output_print(true, COMMON_S COMMON_L(":") COMMON_N, message);
+    if (client != NULL) output_print_client(true, client);
 
     /* Print error */
     if (error == OK)

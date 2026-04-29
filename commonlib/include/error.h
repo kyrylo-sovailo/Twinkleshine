@@ -31,6 +31,7 @@
 #endif
 
 struct Error;
+struct Client;
 #define OK ((struct Error*)0)
 #define PANIC ((struct Error*)1)
 
@@ -102,7 +103,7 @@ struct Error *error_internal_allocate_append(struct Error *error, const cchar_t 
 int error_get_exit_code(const struct Error *error);
 
 /* Prints error (guaranteed to succeed) */
-void error_print(const struct Error *error);
+void error_print(const struct Error *error, const struct Client *client);
 
 /* Finalizes error (guaranteed to succeed) */
 void error_finalize(struct Error *error);

@@ -1,8 +1,10 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#include "../commonlib/include/error.h"
+#include "../commonlib/include/macro.h"
 
-struct Error *server_main(int argc, char **argv) NODISCARD;
+struct Error;
+
+struct Error *server_main(void) NODISCARD;
 
 #endif

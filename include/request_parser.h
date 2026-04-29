@@ -1,10 +1,12 @@
 #ifndef REQUEST_PARSER_H
 #define REQUEST_PARSER_H
 
+#include "../commonlib/include/macro.h"
 #include "request.h"
-#include "ring.h"
 #include "value.h"
-#include "../commonlib/include/error.h"
+
+struct Error;
+struct Ring;
 
 /* Client's state machine */
 enum RequestParserState

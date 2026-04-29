@@ -8,3 +8,4 @@
  - [ ] Implement multithreading
  - [ ] Ensure debian packages work
  - [ ] Implement systemd scripts
+ - [ ] Implement logging of normal non-error messages (priority: high)

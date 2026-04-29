@@ -1,5 +1,7 @@
 #include "../include/request_parser.h"
+#include "../commonlib/include/error.h"
 #include "../include/constants.h"
+#include "../include/ring.h"
 #include "../include/tables.h"
 
 #include <stdlib.h>

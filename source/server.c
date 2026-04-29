@@ -5,7 +5,7 @@
 #include "../include/request_parser.h"
 #include "../include/request_processor.h"
 #include "../include/ring.h"
-#include "../commonlib/include/path.h"
+#include "../include/tables.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -25,12 +25,12 @@
 /* Values for error_flags */
 enum ErrorFlags
 {
-    ERF_FATAL   = 1 << ERROR_TYPE_BITS, /* Total failure */
-    ERF_CLOSE   = 2 << ERROR_TYPE_BITS, /* Close the connection */
-    ERF_MESSAGE = 4 << ERROR_TYPE_BITS, /* Message the client before closing connection */
-    ERF_LOG     = 8 << ERROR_TYPE_BITS, /* Log the incident */
+    ERF_MESSAGE = 1 << ERROR_TYPE_BITS, /* Message the client before closing connection */
+    ERF_LOG     = 2 << ERROR_TYPE_BITS, /* Log the incident */
+    ERF_CLOSE   = 4 << ERROR_TYPE_BITS, /* Close the connection */
+    ERF_FATAL   = 8 << ERROR_TYPE_BITS, /* Total failure */
 
-    ERF_DEFAULT = ERF_CLOSE | ERF_LOG
+    ERF_DEFAULT = ERF_LOG | ERF_CLOSE
 };
 
 /* First N sockets are reserved, polls is N entries longer than clients */
@@ -80,7 +80,7 @@ static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, 
 
     /* Get buffer */
     PRET(ring_reserve(ring, ring->size + size)); /* Failure -> close */
-    *error_flags = ERF_FATAL | ERF_LOG;
+    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
     PRET(ring_push_get(ring, size, &value)); /* Failure -> fatal */
     *error_flags = ERF_DEFAULT;
 
@@ -98,14 +98,14 @@ static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, 
     }
 
     /* Check for unused buffer */
-    *error_flags = ERF_FATAL | ERF_LOG;
+    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
     PRET(ring_unpush(ring, value_size(&value))); /* Failure -> fatal */
     *error_flags = ERF_DEFAULT;
     return OK;
 }
 
 /* Sends 'low on resources' response */
-static void send_low_resources(int fd, bool max_clients, bool max_memory, bool max_utilization)
+static void send_low_resources(struct Client *client, int fd, bool max_clients, bool max_memory, bool max_utilization)
 {
     struct Error *error;
     struct ConstValue response = ZERO_INIT;
@@ -121,7 +121,7 @@ static void send_low_resources(int fd, bool max_clients, bool max_memory, bool m
     return;
 
     failure:
-    error_print(error);
+    error_print(error, client);
     error_finalize(error);
 }
 
@@ -132,15 +132,17 @@ static struct Error *create_listening_sockets(struct PollBuffer *polls)
     struct Error *error;
     struct pollfd new_poll = { -1, POLLIN, 0 };
     struct sockaddr_in socket_address = ZERO_INIT;
+    int one = 1;
 
     new_poll.fd = socket(AF_INET, SOCK_STREAM, 0);
     AGOTO0(new_poll.fd >= 0, "socket() failed"); /* Failure -> fatal */
+    AGOTO0(setsockopt(new_poll.fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) >= 0, "setsockopt() failed"); /* Failure -> fatal */
 
     socket_address.sin_family = AF_INET;
     socket_address.sin_addr.s_addr = INADDR_ANY;
     socket_address.sin_port = htons(8080);
     AGOTO0(bind(new_poll.fd, (struct sockaddr*)&socket_address, sizeof(socket_address)) >= 0, "bind() failed"); /* Failure -> fatal */
-    AGOTO0(listen(new_poll.fd, 10) >= 0, "listed() failed"); /* Failure -> fatal */
+    AGOTO0(listen(new_poll.fd, MAX_CLIENTS_IN_QUEUE) >= 0, "listed() failed"); /* Failure -> fatal */
     PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
     return OK;
 
@@ -171,7 +173,7 @@ static struct Error *process_listening_sockets(struct ClientBuffer *clients, str
     max_utilization = utilization >= MAX_PROCESSOR_UTILIZATION;
     if (max_clients || max_memory || max_utilization)
     {
-        send_low_resources(new_poll.fd, max_clients, max_memory, max_utilization);
+        send_low_resources(&new_client, new_poll.fd, max_clients, max_memory, max_utilization);
         close(new_poll.fd);
         return OK;
     }
@@ -201,7 +203,7 @@ static struct Error *client_receive_data(int *error_flags, struct Client *client
     ARET0(ioctl(fd, FIONREAD, &signed_available) >= 0, "ioctl() failed"); /* Failure -> close */
     ARET0(signed_available >= 0, "ioctl() failed"); /* Failure -> close */
     available = (size_t)signed_available;
-    *error_flags = ERF_LOG | ERF_MESSAGE | ERR_TOO_FAST;
+    *error_flags = ERF_MESSAGE | ERR_TOO_FAST | ERF_LOG | ERF_CLOSE;
     ARET0(available <= MAX_AVAILABLE_INPUT, "ioctl() failed"); /* Failure -> send ERR_TOO_FAST and close */
     *error_flags = ERF_DEFAULT;
     if (available < MIN_AVAILABLE_INPUT) available = MIN_AVAILABLE_INPUT;
@@ -219,7 +221,7 @@ static struct Error *client_push_to_long_output_buffer(int *error_flags, struct 
 {
     PRET(ring_reserve(&client->output_buffer, client->output_buffer.size + data->size)); /* Failure -> close */
     PRET(ring_reserve(&client->output_size_buffer, client->output_size_buffer.size + sizeof(data->size))); /* Failure -> close */
-    *error_flags = ERF_LOG | ERF_FATAL;
+    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
     PRET(ring_push_write(&client->output_buffer, data->size, data->p)); /* Failure -> fatal */
     PRET(ring_push_write(&client->output_size_buffer, sizeof(data->size), (const char*)&data->size)); /* Failure -> fatal */
     *error_flags = ERF_DEFAULT;
@@ -233,7 +235,7 @@ static struct Error *client_process_data(int *error_flags, struct Client *client
     struct ConstValuePart response;
 
     /* Parse request, quit if the request is incomplete */
-    *error_flags = ERF_LOG | ERF_MESSAGE | ERR_PARSING_FAILED;
+    *error_flags = ERF_MESSAGE | ERR_PARSING_FAILED | ERF_LOG | ERF_CLOSE;
     PRET(request_parser_parse(&client->parser, &client->input_buffer)); /* Failure -> send ERR_TOO_LARGE/ERR_PARSING_FAILED and close */
     *error_flags = ERF_DEFAULT;
     if (client->parser.state != RPS_END) return OK;
@@ -249,9 +251,9 @@ static struct Error *client_process_data(int *error_flags, struct Client *client
     }
 
     /* Generate response */
-    *error_flags = ERF_LOG | ERF_MESSAGE | ERR_UNKNOWN;
+    *error_flags = ERF_MESSAGE | ERR_UNKNOWN | ERF_LOG | ERF_CLOSE;
     PRET(request_processor_process(&client->input_buffer, &client->parser.request, &response)); /* Failure -> send ERR_UNKNOWN and close */
-    *error_flags = ERF_LOG | ERF_FATAL;
+    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
     PRET(ring_pop(&client->input_buffer, client->parser.offset)); /* Failure -> fatal */
     *error_flags = ERF_DEFAULT;
 
@@ -267,7 +269,7 @@ static struct Error *client_process_data(int *error_flags, struct Client *client
     }
 
     /* Reset parser for future data */
-    if (!client->parser.request.keep_alive) { const struct RequestParser zero = ZERO_INIT; client->parser = zero; }
+    if (client->parser.request.keep_alive) { const struct RequestParser zero = ZERO_INIT; client->parser = zero; }
     return OK;
 }
 
@@ -301,7 +303,7 @@ static struct Error *client_send_long_output_buffer(int *error_flags, struct Cli
     PRET(send_value(&value, fd, sent_not_all)); /* Failure -> close */
     new_value_size = value_const_size(&value);
     sent_size = old_value_size - new_value_size;
-    *error_flags = ERF_LOG | ERF_FATAL;
+    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
     PRET(ring_pop(&client->output_buffer, sent_size)); /* Failure -> fatal */
     *error_flags = ERF_DEFAULT;
 
@@ -310,13 +312,13 @@ static struct Error *client_send_long_output_buffer(int *error_flags, struct Cli
     {
         size_t response_size;
         const struct ValueLocation location = { 0, sizeof(response_size) };
-        *error_flags = ERF_LOG | ERF_FATAL;
+        *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
         PRET(ring_get(&client->output_size_buffer, &location, false, &nonconst_value)); /* Failure -> fatal */
         *error_flags = ERF_DEFAULT;
         value_read(&nonconst_value, (char*)&response_size);
         if (sent_size >= response_size)
         {
-            *error_flags = ERF_LOG | ERF_FATAL;
+            *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
             PRET(ring_pop(&client->output_size_buffer, sizeof(response_size))); /* Failure -> fatal */
             *error_flags = ERF_DEFAULT;
             client->last_output_complete = now;
@@ -380,13 +382,13 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
 {
     struct Error *error;
     int error_flags = ERF_DEFAULT;
-    bool receive_may_succeed, send_may_succeed, normal_termination;
+    bool receive_may_succeed, send_may_succeed;
 
     /* Check if connection failed */
     AGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed"); /* Failure -> close */
 
     /* Check if connection should be terminated */
-    error_flags = ERF_LOG | ERF_CLOSE | ERF_MESSAGE | ERR_INCOMPLETE_INPUT;
+    error_flags = ERF_MESSAGE | ERR_INCOMPLETE_INPUT | ERF_LOG | ERF_CLOSE;
     AGOTO(check_timeout(client->last_input_complete  + MAX_INCOMPLETE_INPUT_TIME,   now, remaining)); /* Failure -> send ERR_INCOMPLETE_INPUT and close */
     error_flags = ERF_DEFAULT;
     AGOTO(check_timeout(client->last_input_not_empty + MAX_NO_INPUT_TIME,           now, remaining)); /* Failure -> close */
@@ -396,7 +398,6 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
     /* Do everything you can */
     receive_may_succeed = !(((poll->events & POLLIN) != 0) && ((poll->revents & POLLIN) == 0));
     send_may_succeed = !(((poll->events & POLLOUT) != 0) && ((poll->revents & POLLOUT) == 0));
-    normal_termination = false;
     while (true)
     {
         bool done = true;
@@ -412,7 +413,17 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
             bool received_not_all = false, received_zero = false;
             PGOTO(client_receive_data(&error_flags, client, poll->fd, now, &received_not_all, &received_zero));
             if (received_not_all) receive_may_succeed = false;
-            if (received_zero) { normal_termination = true; break; } /* TODO: check the state of the parser */
+            if (received_zero)
+            {
+                /* Termination for Connection: keep-alive */
+                error_flags = ERF_LOG | ERF_CLOSE;
+                AGOTO(client->input_buffer.size == 0);
+                AGOTO(client->parser.state == RPS_END);
+                AGOTO(client_process_output_buffer_size(client) == 0);
+                client_finalize(client);
+                poll_finalize(poll);
+                return OK;
+            }
             done = false;
         }
         
@@ -438,53 +449,49 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
             bool sent_not_all = false;
             PGOTO(client_send_data(&error_flags, client, poll->fd, now, &sent_not_all));
             if (sent_not_all) send_may_succeed = false;
-            if (client->parser.state == RPS_END && client_process_output_buffer_size(client) == 0) { normal_termination = true; break; }
+            if (client->parser.state == RPS_END && client_process_output_buffer_size(client) == 0)
+            {
+                /* Termination for Connection: close */
+                error_flags = ERF_LOG | ERF_CLOSE;
+                AGOTO(client->input_buffer.size == 0);
+                client_finalize(client);
+                poll_finalize(poll);
+                return OK;
+            }
             done = false;
         }
 
-        /* Nothing to do */
-        if (done) break;
+        /* Nothing to do, prepare to wait */
+        if (done)
+        {
+            poll->events = POLLHUP | POLLERR;
+            if (client_process_makes_sense_to_receive(client)) poll->events |= POLLIN;
+            if (client_process_makes_sense_to_send(client)) poll->events |= POLLOUT;
+            return OK;
+        }
     }
-
-    if (normal_termination)
-    {
-        /* Normal termination */
-        client_finalize(client);
-        poll_finalize(poll);
-    }
-    else
-    {
-        /* Arm triggers */
-        poll->events = POLLHUP | POLLERR;
-        if (client_process_makes_sense_to_receive(client)) poll->events |= POLLIN;
-        if (client_process_makes_sense_to_send(client)) poll->events |= POLLOUT;
-    }
-    return OK;
 
     failure:
-    if ((error_flags & ERF_LOG) != 0)
-    {
-        error_print(error);
-    }
     if ((error_flags & ERF_MESSAGE) != 0)
     {
         struct ConstValuePart response;
         request_processor_error(error_flags & ERROR_TYPE_MASK, &response);
         (void)send(poll->fd, response.p, response.size, 0);
     }
-    if ((error_flags & ERF_CLOSE) != 0 || (error_flags & ERF_FATAL) != 0)
+    if ((error_flags & ERF_CLOSE) != 0)
     {
         client_finalize(client);
         poll_finalize(poll);
+    }
+    if ((error_flags & ERF_LOG) != 0)
+    {
+        error_print(error, client);
     }
     if ((error_flags & ERF_FATAL) != 0)
     {
         return error;
     }
-    else if (error != OK)
-    {
-        error_finalize(error);
-    }
+    error_finalize(error);
     return OK;
 }
 
@@ -500,7 +507,7 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
 
     /* Wait for events */
     poll_begin_clock = *utilization_clock; /* Do not repeat clock() call */
-    event_number = poll(polls->p, polls->size, (*remaining == INT_MAX) ? -1 : *remaining);
+    event_number = poll(polls->p, polls->size, (*remaining == INT_MAX) ? -1 : *remaining * 1000);
     ARET0(event_number >= 0, "poll() failed"); /* Failure -> fatal */
     poll_end_clock = clock();
     now = time(NULL);
@@ -526,7 +533,7 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
     return OK;
 }
 
-struct Error *server_main(int argc, char **argv)
+struct Error *server_main(void)
 {
     struct Error *error;
     struct ClientBuffer clients = ZERO_INIT;
@@ -535,8 +542,8 @@ struct Error *server_main(int argc, char **argv)
     clock_t utilization_clock;
     int remaining = INT_MAX;
 
-    /* Initialize modules */
-    PGOTO(path_module_initialize(argc, argv));
+    /* Initialize */
+    tables_module_initialize();
 
     /* Create socket */
     PGOTO(create_listening_sockets(&polls));
@@ -553,7 +560,6 @@ struct Error *server_main(int argc, char **argv)
     clients_finalize(&clients);
     polls_finalize(&polls);
     request_processor_finalize();
-    path_module_finalize();
 
     return error;
 }

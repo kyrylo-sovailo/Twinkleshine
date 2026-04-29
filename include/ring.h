@@ -1,10 +1,14 @@
 #ifndef RING_H
 #define RING_H
 
-#include "value.h"
-#include "../commonlib/include/error.h"
+#include "../commonlib/include/bool.h"
+#include "../commonlib/include/macro.h"
 
 #include <stddef.h>
+
+struct Error;
+struct Value;
+struct ValueLocation;
 
 struct Ring
 {

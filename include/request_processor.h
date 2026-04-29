@@ -1,10 +1,12 @@
 #ifndef REQUEST_PROCESSOR_H
 #define REQUEST_PROCESSOR_H
 
-#include "request.h"
-#include "ring.h"
-#include "value.h"
-#include "../commonlib/include/error.h"
+#include "../commonlib/include/macro.h"
+
+struct ConstValuePart;
+struct Error;
+struct Request;
+struct Ring;
 
 /* Identifies the error that should be sent, if any error is sent at all */
 #define ERROR_TYPE_BITS 8

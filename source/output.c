@@ -1,12 +1,15 @@
 #include "../include/output.h"
+#include "../include/client.h"
 #include "../include/constants.h"
 #include "../include/macro.h"
 #include "../include/memory.h"
 
-#include <unistd.h>
-#include <sys/stat.h>
-
+#include <arpa/inet.h>
 #include <dirent.h>
+#include <netinet/in.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -333,4 +336,13 @@ void output_print_time(bool output_error)
             output_print(output_error, "%s\n", calender_buffer);
         }
     }
+}
+
+void output_print_client(bool error_output, const struct Client *client)
+{
+    const struct sockaddr_in *cast = (const struct sockaddr_in*)&client->address;
+    const unsigned short port = ntohs(cast->sin_port);
+    char address[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &cast->sin_addr, address, sizeof(address));
+    output_print(error_output, "%s:%u\n", address, (unsigned int)port);
 }

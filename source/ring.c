@@ -1,5 +1,7 @@
 #include "../include/ring.h"
+#include "../commonlib/include/error.h"
 #include "../include/memory.h"
+#include "../include/value.h"
 
 #include <string.h>
 

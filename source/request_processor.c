@@ -1,6 +1,10 @@
 #include "../include/request_processor.h"
-#include "../include/tables.h"
+#include "../commonlib/include/error.h"
 #include "../commonlib/include/string.h"
+#include "../include/request.h"
+#include "../include/ring.h"
+#include "../include/tables.h"
+#include "../include/value.h"
 
 #include <string.h>
 #include <time.h>
@@ -53,11 +57,17 @@ static const char html_static_index_page[] =
 "<!DOCTYPE html>\n"
 "<html>\n"
 "<head>\n"
-"<title>Page Title</title>\n"
+"    <meta charset=\"utf-8\">\n"
+"    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+"    <title>My 8-bit soul</title>\n"
 "</head>\n"
 "<body>\n"
-"<h1>This is a Heading</h1>\n"
-"<p>This is a paragraph.</p>\n"
+"    <header>\n"
+"        <h1>This is Kyrylo's website.</h1>\n"
+"    </header>\n"
+"    <p>It is displaying correctly.</p>\n"
+"    <p>The style is not a bug. It is a feature.</p>\n"
+"    <p>Served to you by the <a href=\"https://github.com/kyrylo-sovailo/Twinkleshine\">Twinkleshine server</a>.</p>\n"
 "</body>\n"
 "</html>\n";
 

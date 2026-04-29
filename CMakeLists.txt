@@ -18,14 +18,6 @@ set(DEV_EXTENDED_DESCRIPTION "Standalone server that can handle multiple exotic 
 cmake_minimum_required(VERSION 3.13)
 project(twinkleshine VERSION ${DEV_VERSION} LANGUAGES C)
 include(config/cmake/common.cmake)
-add_compile_options(-Wall -Wextra -pedantic)
-add_compile_options(-Wconversion -Wsign-conversion -Wmissing-declarations -Wstrict-prototypes -Wunreachable-code) #TODO: relocate it to common.cmake
-add_compile_options(-std=c89)
-add_compile_options(-Werror)
-if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    add_compile_options(-fanalyzer)
-endif()
-add_link_options(-Wl,--no-undefined)
 
 ####################
 # Generic features #

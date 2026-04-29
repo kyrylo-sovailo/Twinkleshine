@@ -6,6 +6,8 @@
 
 #include <stdarg.h>
 
+struct Client;
+
 /* Initializes output module (guaranteed to succeed) */
 void output_module_initialize(void);
 
@@ -26,5 +28,8 @@ void output_vprint(bool error_output, const char *format, va_list va) PRINTFLIKE
 
 /* Write timestamp to error output */
 void output_print_time(bool error_output);
+
+/* Write client information to error output (only client's IP is read, it may be partially initialized) */
+void output_print_client(bool error_output, const struct Client *client);
 
 #endif

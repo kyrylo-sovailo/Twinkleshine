@@ -2,7 +2,7 @@
 #define FIELD_H
 
 #include "../commonlib/include/bool.h"
-#include "../commonlib/include/error.h"
+#include "../commonlib/include/macro.h"
 
 #include <stddef.h>
 
