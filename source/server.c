@@ -8,15 +8,14 @@
 #include "../include/tables.h"
 
 #include <arpa/inet.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <stdbool.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -41,13 +40,13 @@ static bool check_timeout(time_t timeout, time_t now, int *remaining)
 {
     if (timeout >= now)
     {
-        return false;
+        return true;
     }
     else
     {
         const int local_remaining = (int)(timeout - now);
         if (local_remaining < *remaining) *remaining = local_remaining;
-        return true;
+        return false;
     }
 }
 
@@ -90,11 +89,11 @@ static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, 
         ssize_t signed_received; size_t received;
         if (value.parts[i].size == 0) continue;
         signed_received = read(fd, value.parts[i].p, value.parts[i].size);
-        ARET0(signed_received >= 0, "read() failed"); /* Failure -> close */
-        received = (size_t)signed_received;
+        ARET0(signed_received >= 0 || errno == EAGAIN || errno == EWOULDBLOCK, "read() failed"); /* Failure -> close */
+        received = (signed_received >= 0) ? (size_t)signed_received : 0;
         value.parts[i].p += received;
         value.parts[i].size -= received;
-        if (value.parts[i].size > 0) { *received_not_all = true; *received_zero = (received == 0); break; }
+        if (value.parts[i].size > 0) { *received_not_all = true; *received_zero = (signed_received == 0); break; }
     }
 
     /* Check for unused buffer */
@@ -177,14 +176,15 @@ static struct Error *process_listening_sockets(struct ClientBuffer *clients, str
         close(new_poll.fd);
         return OK;
     }
-    PGOTO(clients_append(clients, &new_client, 1)); /* Failure -> fatal */
+    PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
+    
 
     /* Create client */
     new_client.last_input_complete = now;
     new_client.last_input_not_empty = now;
     new_client.last_output_not_full = now;
     new_client.last_output_complete = now;
-    PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
+    PGOTO(clients_append(clients, &new_client, 1)); /* Failure -> fatal */
     return OK;
 
     failure:
@@ -260,7 +260,7 @@ static struct Error *client_process_data(int *error_flags, struct Client *client
     /* Save the response to either short-term or long-term buffer */
     if (client->output_buffer.size > 0)
     {
-        PRET(client_push_to_long_output_buffer(error_flags, client, &client->short_output_buffer));
+        PRET(client_push_to_long_output_buffer(error_flags, client, &response));
         request_processor_free();
     }
     else
@@ -418,7 +418,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
                 /* Termination for Connection: keep-alive */
                 error_flags = ERF_LOG | ERF_CLOSE;
                 AGOTO(client->input_buffer.size == 0);
-                AGOTO(client->parser.state == RPS_END);
+                AGOTO(client->parser.state == (enum RequestParserState)0);
                 AGOTO(client_process_output_buffer_size(client) == 0);
                 client_finalize(client);
                 poll_finalize(poll);

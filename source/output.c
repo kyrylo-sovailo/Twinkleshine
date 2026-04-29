@@ -25,8 +25,8 @@ struct Log
     unsigned long int size;         /* Log size, bytes */
     char *path;                     /* Full file path */
 };
-static const char *const log_directory = "/var/log/twinkleshine/";              /* Log directory */
-static const size_t log_directory_length = sizeof("/var/log/twinkleshine/") - 1;/* Length if log directory */
+static const char log_directory[] = "/var/log/twinkleshine/";           /* Log directory */
+static const size_t log_directory_length = sizeof(log_directory) - 1;   /* Length if log directory */
 static struct Log g_logs[MAX_TOTAL_LOG_NUMBER]; /* Array of logs, oldest first */
 static unsigned int g_logs_size = 0;            /* Real number of files */
 static unsigned long int g_logs_total_size = 0; /* Real sum of log file sizes */
