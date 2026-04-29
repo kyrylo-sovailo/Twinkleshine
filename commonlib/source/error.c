@@ -1,8 +1,7 @@
 #include "../include/error.h"
+#include "../../include/output.h"
 #include "../include/path.h"
 #include "../include/string.h"
-#include "../../include/memory.h"
-#include "../../include/output.h"
 
 #include <stdarg.h>
 #include <stddef.h>
@@ -15,10 +14,10 @@ struct Error
     struct Error *next;
 };
 
-struct Error *error_internal_allocate(const char *format, ...)
+struct Error *error_internal_allocate(const cchar_t *format, ...)
 {
     /* Create new error buffer */
-    struct Error *error = (struct Error*)count_malloc(sizeof(*error));
+    struct Error *error = (struct Error*)malloc(sizeof(*error));
     if (error != NULL)
     {
         /* Print */
@@ -37,16 +36,16 @@ struct Error *error_internal_allocate(const char *format, ...)
     }
 }
 
-struct Error *error_internal_allocate_append(struct Error *error, const char *format, ...)
+struct Error *error_internal_allocate_append(struct Error *error, const cchar_t *format, ...)
 {
     /* Create new error buffer */
-    struct Error *new_error = (struct Error*)count_malloc(sizeof(*new_error));
+    struct Error *new_error = (struct Error*)malloc(sizeof(*new_error));
     if (new_error != NULL)
     {
         /* Print */
         const struct Error zero = ZERO_INIT;
         va_list va;
-        *error = zero;
+        *new_error = zero;
         va_start(va, format);
         if (string_internal_vprint_append(&new_error->message, true, format, va)) {}
         va_end(va);
@@ -62,7 +61,7 @@ struct Error *error_internal_allocate_append(struct Error *error, const char *fo
         if (error == NULL) return PANIC; /* Shouldn't normally happen. Should I "if (!error) return error;" at the beginning? */
         if (error == PANIC) return PANIC; /* Not much can be done */
         
-        /* Go to the last allocated error and set it to PANIC */
+        /* Go to the first allocated error and set it to PANIC for it to print correctly */
         error_i = error;
         while (true)
         {
@@ -78,7 +77,7 @@ int error_get_exit_code(const struct Error *error)
 {
     const int invalid_line = 1000 * 1000;
     const struct Error *error_i;
-    const char *p_end;
+    const cchar_t *p_end;
     if (error == OK) return invalid_line + 1;
     if (error == PANIC) return invalid_line + 2;
 
@@ -96,15 +95,15 @@ int error_get_exit_code(const struct Error *error)
     p_end = error->message.p + error->message.size;
     while (true)
     {
-        const char *p_number_begin;
-        char *p_number_end;
+        const cchar_t *p_number_begin;
+        cchar_t *p_number_end;
         unsigned long line;
         while (p_end - 1 > error->message.p && *(p_end - 1) != ':') p_end--; /* Skip non : */
         if (*p_end != ':') return invalid_line + 4; /* No : found */
         p_number_begin = p_end - 1;
         while (p_number_begin - 1 > error->message.p && *(p_number_begin - 1) >= '0' && *(p_number_begin - 1) <= '9') p_number_begin--; /* Skip number */
         if (!(*p_number_begin >= '0' && *p_number_begin <= '9')) { p_end = p_number_begin - 1; continue; } /* No number found */
-        line = strtoul(p_number_begin, &p_number_end, 10);
+        line = COMMON_WCS(toul(p_number_begin, &p_number_end, 10));
         if (p_number_end != p_end) { p_end = p_number_begin - 1; continue; } /* Number invalid */
         return (int)line;
     }
@@ -113,18 +112,22 @@ int error_get_exit_code(const struct Error *error)
 
 void error_print(const struct Error *error)
 {
-    /* Print program name */
-    output_open();
-    output_print("%s:\n", (g_application.p != NULL) ? g_application.p : "APPLICATION NULL");
+    const cchar_t *message;
 
-    /* Print last error */
+    /* Print program name */
+    if (g_application.p == NULL) message = COMMON_L("APPLICATION NULL");
+    else message = g_application.p;
+    output_open(true);
+    output_print(true, COMMON_S COMMON_L(":") COMMON_N, message);
+
+    /* Print error */
     if (error == OK)
     {
-        output_print("ERROR OK\n");
+        output_print(true, COMMON_L("ERROR OK") COMMON_N);
     }
     else if (error == PANIC)
     {
-        output_print("ERROR PANIC\n");
+        output_print(true, COMMON_L("ERROR PANIC") COMMON_N);
     }
     else
     {
@@ -139,28 +142,32 @@ void error_print(const struct Error *error)
             error_i = error_i->next;
             if (error_i == PANIC) break;
         }
-        output_print("%s\n", (error_i == PANIC) ? "ERROR PANIC" : ((error_i->message.p != NULL) ? error_i->message.p : "ERROR NULL"));
+        if (error == PANIC) message = COMMON_L("ERROR PANIC");
+        else if (error_i->message.p == NULL) message = COMMON_L("ERROR NULL");
+        else message = error_i->message.p;
+        output_print(true, COMMON_S COMMON_N, message);
 
         /* Print traceback */
-        output_print("Traceback (most recent call last):\n");
+        output_print(true, COMMON_L("Traceback (most recent call last):") COMMON_N);
         error_number = 0;
         error_i = error;
         while (true)
         {
             error_number++;
             if (error_i == OK) break;
-            output_print("%d. %s\n", error_number, (error_i == PANIC) ? "ERROR PANIC" : ((error_i->message.p != NULL) ? error_i->message.p : "ERROR NULL"));
+            if (error == PANIC) message = COMMON_L("ERROR PANIC");
+            else if (error_i->message.p == NULL) message = COMMON_L("ERROR NULL");
+            else message = error_i->message.p;
+            output_print(true, COMMON_L("%d. ") COMMON_S COMMON_N, error_number, message);
             if (error_i == PANIC) break;
             error_i = error_i->next;
         }
-
-        /* Print time */
-        output_print_time();
     }
 
-    /* Print trailing newline */
-    output_print("\n");
-    output_close();
+    /* Print time */
+    output_print_time(true);
+    output_print(true, COMMON_N);
+    output_close(true);
 }
 
 void error_finalize(struct Error *error)
@@ -170,7 +177,7 @@ void error_finalize(struct Error *error)
         struct Error *next_error;
         string_finalize(&error->message);
         next_error = error->next;
-        count_free(error, sizeof(*error));
+        free(error);
         error = next_error;
     }
 }

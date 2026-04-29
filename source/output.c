@@ -2,7 +2,6 @@
 #include "../include/constants.h"
 #include "../include/macro.h"
 #include "../include/memory.h"
-#include "../commonlib/include/bool.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -219,12 +218,13 @@ void output_module_finalize(void)
     if (g_file != NULL) fclose(g_file);
 }
 
-void output_open(void)
+void output_open(bool output_error)
 {
     time_t global_now, global_start;
     struct tm *p_global_now_calender, global_now_calender, global_start_calender = ZERO_INIT;
     bool create_new_log = false;
     unsigned int create_new_log_number = 0;
+    (void)output_error; /* No differentiation between output and error */
     
     if (g_catastrophic) return;
     
@@ -274,9 +274,10 @@ void output_open(void)
     if (g_file == NULL) { g_catastrophic = true; return; }
 }
 
-void output_close(void)
+void output_close(bool output_error)
 {
     time_t global_now;
+    (void)output_error;         /* No differentiation between output and error */
     if (g_catastrophic) return; /* Catastrophic, nothing to do */
     if (g_file == NULL) return; /* Already closed, nothing to do */
     global_now = time(NULL);
@@ -285,15 +286,15 @@ void output_close(void)
     cleanup(global_now);
 }
 
-void output_print(const char *format, ...)
+void output_print(bool output_error, const char *format, ...)
 {
     va_list va;
     va_start(va, format);
-    output_vprint(format, va);
+    output_vprint(output_error, format, va);
     va_end(va);
 }
 
-void output_vprint(const char *format, va_list va)
+void output_vprint(bool output_error, const char *format, va_list va)
 {
     if (g_catastrophic)
     {
@@ -303,13 +304,13 @@ void output_vprint(const char *format, va_list va)
     else if (g_file != NULL)
     {
         int result = vfprintf(g_file, format, va);
-        if (result < 0) { g_catastrophic = true; output_print("ERROR LOST"); return; }
+        if (result < 0) { g_catastrophic = true; output_print(output_error, "ERROR LOST"); return; }
         g_logs[g_logs_size - 1].size += (unsigned int)result;
         g_logs_total_size += (unsigned int)result;
     }
 }
 
-void output_print_time(void)
+void output_print_time(bool output_error)
 {
     time_t global_time;
     struct tm *p_global_calender, global_calender;
@@ -325,11 +326,11 @@ void output_print_time(void)
     if (p_global_calender != NULL)
     {
         strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &global_calender);
-        output_print("%s\n", calender_buffer);
+        output_print(output_error, "%s\n", calender_buffer);
         if (p_local_calender != NULL)
         {
             strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &local_calender);
-            output_print("%s\n", calender_buffer);
+            output_print(output_error, "%s\n", calender_buffer);
         }
     }
 }

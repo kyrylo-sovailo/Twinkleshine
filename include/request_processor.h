@@ -8,6 +8,7 @@
 
 /* Identifies the error that should be sent, if any error is sent at all */
 #define ERROR_TYPE_BITS 8
+#define ERROR_TYPE_MASK ((1 << ERROR_TYPE_BITS) - 1)
 enum ErrorType
 {
     ERR_MAX_CLIENTS,        /* 2.1 */

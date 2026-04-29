@@ -14,14 +14,7 @@ void FUNCTION_NAME ## finalize(struct STRUCT_NAME *buffer) \
 { \
     TYPE *p; \
     for (p = buffer->p; p < buffer->p + buffer->size; p++) FUNCTION_NAME ## finalize_element(p); \
-    switch (sizeof(*buffer->p)) \
-    { \
-    case 1: generic_buffer_finalize_1(buffer); break; \
-    case 2: generic_buffer_finalize_2(buffer); break; \
-    case 4: generic_buffer_finalize_4(buffer); break; \
-    case 8: generic_buffer_finalize_8(buffer); break; \
-    default: generic_buffer_finalize_n(buffer, sizeof(*buffer->p)); break; \
-    } \
+    generic_buffer_finalize(buffer); \
 }
 
 #define IMPLEMENT_BUFFER_RESIZE(TYPE, STRUCT_NAME, FUNCTION_NAME) \
@@ -40,7 +33,7 @@ ERROR_TYPE FUNCTION_NAME ## resize(struct STRUCT_NAME *buffer, size_t size) \
     default: ERROR_ASSIGN(generic_buffer_resize_n(buffer, size, sizeof(*buffer->p))); break; \
     } \
     for (p = buffer->p + old_size; p < buffer->p + size; p++) FUNCTION_NAME ## initialize_element(p); \
-    ERROR_RETURN_VERBATIM(); \
+    ERROR_RETURN(); \
 }
 
 #define IMPLEMENT_BUFFER_RESERVE(TYPE, STRUCT_NAME, FUNCTION_NAME) \
@@ -55,7 +48,7 @@ ERROR_TYPE FUNCTION_NAME ## reserve(struct STRUCT_NAME *buffer, size_t size) \
     case 8: ERROR_ASSIGN(generic_buffer_reserve_8(buffer, size)); break; \
     default: ERROR_ASSIGN(generic_buffer_reserve_n(buffer, size, sizeof(*buffer->p))); break; \
     } \
-    ERROR_RETURN_VERBATIM(); \
+    ERROR_RETURN(); \
 }
 
 #define IMPLEMENT_BUFFER_APPEND(TYPE, STRUCT_NAME, FUNCTION_NAME) \
@@ -70,7 +63,7 @@ ERROR_TYPE FUNCTION_NAME ## append(struct STRUCT_NAME *buffer, const TYPE *data,
     case 8: ERROR_ASSIGN(generic_buffer_append_8(buffer, data, size)); break; \
     default: ERROR_ASSIGN(generic_buffer_append_n(buffer, data, size, sizeof(*buffer->p))); break; \
     } \
-    ERROR_RETURN_VERBATIM(); \
+    ERROR_RETURN(); \
 }
 
 #define IMPLEMENT_BUFFER_PUSH(TYPE, STRUCT_NAME, FUNCTION_NAME, SIZE) \
@@ -80,15 +73,11 @@ ERROR_TYPE FUNCTION_NAME ## push(struct STRUCT_NAME *buffer, TYPE data) \
     ERROR_DECLARE(); \
     (void)static_check; \
     ERROR_ASSIGN(generic_buffer_push_ ## SIZE(buffer, (GENERIC_ARGMENT_ ## SIZE)data)); \
-    ERROR_RETURN_VERBATIM(); \
+    ERROR_RETURN(); \
 }
 
 void generic_buffer_initialize(void *buffer);
-void generic_buffer_finalize_1(void *buffer);
-void generic_buffer_finalize_2(void *buffer);
-void generic_buffer_finalize_4(void *buffer);
-void generic_buffer_finalize_8(void *buffer);
-void generic_buffer_finalize_n(void *buffer, size_t element_sizeof);
+void generic_buffer_finalize(void *buffer);
 
 ERROR_TYPE generic_buffer_resize_1(void *buffer, size_t size);
 ERROR_TYPE generic_buffer_resize_2(void *buffer, size_t size);

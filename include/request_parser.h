@@ -32,7 +32,7 @@ enum RequestParserState
 struct RequestParser
 {
     struct Request request;             /* Current output */
-    size_t offset;                      /* Number of bytes parsed */
+    size_t offset;                      /* Number of bytes consumed aka request size */
     enum RequestParserState state;      /* Current state */
     unsigned int remaining_content;     /* Expected content length */
     bool tolerated_lf, tolerated_cr;    /* Flags that indicate non-conforming implementations, used to avoid waiting for line ends that aren't coming */

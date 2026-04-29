@@ -2,25 +2,14 @@
 #define COMMONLIB_CHAR_BUFFER_H
 
 #include "buffer.h"
+#include "char.h"
 
-DECLARE_BUFFER(char, CharBuffer)
-DECLARE_BUFFER_INITIALIZE(char, CharBuffer, char_buffer_)
-DECLARE_BUFFER_FINALIZE(char, CharBuffer, char_buffer_)
-DECLARE_BUFFER_RESIZE(char, CharBuffer, char_buffer_)
-DECLARE_BUFFER_RESERVE(char, CharBuffer, char_buffer_)
-DECLARE_BUFFER_APPEND(char, CharBuffer, char_buffer_)
-DECLARE_BUFFER_PUSH(char, CharBuffer, char_buffer_)
-
-#ifdef WIN32
-
-DECLARE_BUFFER(wchar_t, WCharBuffer)
-DECLARE_BUFFER_INITIALIZE(wchar_t, WCharBuffer, wchar_buffer_)
-DECLARE_BUFFER_FINALIZE(wchar_t, WCharBuffer, wchar_buffer_)
-DECLARE_BUFFER_RESIZE(wchar_t, WCharBuffer, wchar_buffer_)
-DECLARE_BUFFER_RESERVE(wchar_t, WCharBuffer, wchar_buffer_)
-DECLARE_BUFFER_APPEND(wchar_t, WCharBuffer, wchar_buffer_)
-DECLARE_BUFFER_PUSH(wchar_t, WCharBuffer, wchar_buffer_)
-
-#endif
+DECLARE_BUFFER(cchar_t, CharBuffer)
+DECLARE_BUFFER_INITIALIZE(cchar_t, CharBuffer, char_buffer_)
+DECLARE_BUFFER_FINALIZE(cchar_t, CharBuffer, char_buffer_)
+DECLARE_BUFFER_RESIZE(cchar_t, CharBuffer, char_buffer_)
+DECLARE_BUFFER_RESERVE(cchar_t, CharBuffer, char_buffer_)
+DECLARE_BUFFER_APPEND(cchar_t, CharBuffer, char_buffer_)
+DECLARE_BUFFER_PUSH(cchar_t, CharBuffer, char_buffer_)
 
 #endif

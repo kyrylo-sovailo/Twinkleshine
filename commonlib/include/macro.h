@@ -8,7 +8,11 @@
 
 /* Function attributes */
 #ifdef __GNUC__
-    #define PRINTFLIKE(FORMAT_POSITION, DOTS_POSITION) __attribute__((format(printf, FORMAT_POSITION, DOTS_POSITION)))
+    #if defined(WIN32) && defined(UNICODE)
+        #define PRINTFLIKE(FORMAT_POSITION, DOTS_POSITION)
+    #else
+        #define PRINTFLIKE(FORMAT_POSITION, DOTS_POSITION) __attribute__((format(printf, FORMAT_POSITION, DOTS_POSITION)))
+    #endif
     #ifdef ERROR_DIE
         #define NODISCARD
     #else

@@ -1,30 +1,29 @@
 #ifndef COMMONLIB_ERROR_H
 #define COMMONLIB_ERROR_H
 
-/* Modified to support up to 4 arguments and stripped to ERROR_TRACE only */
-
 #include "bool.h"
+#include "char.h"
 #include "macro.h"
 
 /*#define ERROR_EMBED_ARGUMENTS*/ /* Store file and line as a part of the message (increases file size) */
 #define ERROR_INCLUDE_EXPRESSION /* Include boolean expression in the trace */
 
 #ifdef ERROR_EMBED_ARGUMENTS
-    #define ERROR_FORMAT() __BASENAME_FILE__ ":" ERROR_STRINGIZE_LINE ": Error"
-    #define ERROR_FORMAT_F(FORMAT) __BASENAME_FILE__ ":" ERROR_STRINGIZE_LINE ": Message: " FORMAT
+    #define ERROR_FORMAT() COMMON_L(__RELATIVE_FILE__) COMMON_L(":") COMMON_L(__STRING_LINE__) COMMON_L(": Error")
+    #define ERROR_FORMAT_F(FORMAT) COMMON_L(__RELATIVE_FILE__) COMMON_L(":") COMMON_L(__STRING_LINE__) COMMON_L(": Message: ") COMMON_L(FORMAT)
     #ifdef ERROR_INCLUDE_EXPRESSION
-        #define ERROR_FORMAT_E(EXPRESSION) __BASENAME_FILE__ ":" ERROR_STRINGIZE_LINE ": Condition `" EXPRESSION "' failed"
-        #define ERROR_FORMAT_EF(EXPRESSION, FORMAT) __BASENAME_FILE__ ":" ERROR_STRINGIZE_LINE ": Condition `" EXPRESSION "' failed. Message: " FORMAT
+        #define ERROR_FORMAT_E(EXPRESSION) COMMON_L(__RELATIVE_FILE__) COMMON_L(":") COMMON_L(__STRING_LINE__) COMMON_L(": Condition `") COMMON_L(EXPRESSION) COMMON_L("' failed")
+        #define ERROR_FORMAT_EF(EXPRESSION, FORMAT) COMMON_L(__RELATIVE_FILE__) COMMON_L(":") COMMON_L(__STRING_LINE__) COMMON_L(": Condition `") COMMON_L(EXPRESSION) COMMON_L("' failed. Message: ") COMMON_L(FORMAT)
     #else
         #define ERROR_FORMAT_E(EXPRESSION) ERROR_FORMAT()
         #define ERROR_FORMAT_EF(EXPRESSION, FORMAT) ERROR_FORMAT_F(FORMAT)
     #endif
 #else
-    #define ERROR_FORMAT() "%s:%d: Error", __BASENAME_FILE__, __LINE__
-    #define ERROR_FORMAT_F(FORMAT) "%s:%d: Message: " FORMAT, __BASENAME_FILE__, __LINE__
+    #define ERROR_FORMAT() COMMON_S COMMON_L(":%d: Error"), COMMON_L(__RELATIVE_FILE__), __LINE__
+    #define ERROR_FORMAT_F(FORMAT) COMMON_S COMMON_L(":%d: Message: ") COMMON_L(FORMAT), COMMON_L(__RELATIVE_FILE__), __LINE__
     #ifdef ERROR_INCLUDE_EXPRESSION
-        #define ERROR_FORMAT_E(EXPRESSION) "%s:%d: Condition `%s' failed", __BASENAME_FILE__, __LINE__, EXPRESSION
-        #define ERROR_FORMAT_EF(EXPRESSION, FORMAT) "%s:%d: Condition `%s' failed. Message: " FORMAT, __BASENAME_FILE__, __LINE__, EXPRESSION
+        #define ERROR_FORMAT_E(EXPRESSION) COMMON_S COMMON_L(":%d: Condition `") COMMON_S COMMON_L("' failed"), COMMON_L(__RELATIVE_FILE__), __LINE__, COMMON_L(EXPRESSION)
+        #define ERROR_FORMAT_EF(EXPRESSION, FORMAT) COMMON_S COMMON_L(":%d: Condition `") COMMON_S COMMON_L("' failed. Message: ") COMMON_L(FORMAT), COMMON_L(__RELATIVE_FILE__), __LINE__, COMMON_L(EXPRESSION)
     #else
         #define ERROR_FORMAT_E(EXPRESSION) ERROR_FORMAT()
         #define ERROR_FORMAT_EF(EXPRESSION, FORMAT) ERROR_FORMAT_F(FORMAT)
@@ -37,10 +36,9 @@ struct Error;
 
 /* Essential macros */
 #define ERROR_TYPE struct Error*
-#define ERROR_DECLARE() struct Error* error
+#define ERROR_DECLARE() struct Error *error
 #define ERROR_ASSIGN(EXPRESSION) error = EXPRESSION
-#define ERROR_RETURN() { PRET(error); return OK; }
-#define ERROR_RETURN_VERBATIM() return error
+#define ERROR_RETURN() return error
 #define ERROR_RETURN_OK() return OK
 
 /* Assigns 'error' variable and goes to 'failure' label (GOTO = goto) */
@@ -95,10 +93,10 @@ struct Error;
 #define PIGNORE(EXPRESSION) { struct Error *check = EXPRESSION; if (check != OK) {} else {} }
 
 /* Creates error (guaranteed to succeed) */
-struct Error *error_internal_allocate(const char *format, ...) NODISCARD PRINTFLIKE(1, 2);
+struct Error *error_internal_allocate(const cchar_t *format, ...) NODISCARD PRINTFLIKE(1, 2);
 
 /* Appends error to an existing error (guaranteed to succeed) */
-struct Error *error_internal_allocate_append(struct Error *error, const char *format, ...) NODISCARD PRINTFLIKE(2, 3);
+struct Error *error_internal_allocate_append(struct Error *error, const cchar_t *format, ...) NODISCARD PRINTFLIKE(2, 3);
 
 /* Gets error code to be returned by application (guaranteed to succeed) */
 int error_get_exit_code(const struct Error *error);

@@ -1,4 +1,5 @@
 #include "../include/request_parser.h"
+#include "../include/constants.h"
 #include "../include/tables.h"
 
 #include <stdlib.h>
@@ -6,18 +7,21 @@
 
 static struct Error *parse_name_value(struct RequestParser *parser, const struct Ring *input)
 {
-    
-    struct Value name, value;
-    PRET(ring_get(input, &parser->current_name, false, &name));
+    struct Value name;
+    PRET(ring_get(input, &parser->current_name, false, &name)); /* TODO: no differentiation between fatal and non-fatal */
     if (value_compare_case_mem(&name, "content-length", strlen("content-length")))
     {
+        struct Value value;
         PRET(ring_get(input, &parser->current_value, false, &value));
         value_trim(&value);
         ARET4(value_to_uint(&value, &parser->remaining_content),
             "Invalid integer: %.*s%.*s", (int)value.parts[0].size, value.parts[0].p, (int)value.parts[1].size, value.parts[1].p);
+        ARET0(parser->current_value.offset + parser->current_value.size + parser->remaining_content <= MAX_REQUEST_SIZE,
+            "Promised request size exceeded");
     }
     else if (value_compare_case_mem(&name, "connection", strlen("connection")))
     {
+        struct Value value;
         PRET(ring_get(input, &parser->current_value, false, &value));
         while (true)
         {
@@ -278,16 +282,18 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
 
 struct Error *request_parser_parse(struct RequestParser *parser, const struct Ring *input)
 {
-    struct ValueLocation unused_location;
-    struct Value unused;
+    struct ValueLocation not_parsed_location;
+    struct Value not_parsed;
     unsigned char i;
     
-    unused_location.offset = parser->offset;
-    unused_location.size = input->size - parser->offset;
-    PRET(ring_get(input, &unused_location, false, &unused));
+    not_parsed_location.offset = parser->offset;
+    if (input->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
+    else not_parsed_location.size = input->size - not_parsed_location.offset;
+    PRET(ring_get(input, &not_parsed_location, false, &not_parsed));
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        PRET(request_parser_part(parser, input, &unused.parts[i]));
+        PRET(request_parser_part(parser, input, &not_parsed.parts[i]));
     }
+    if (input->size >= MAX_REQUEST_SIZE) ARET0(parser->state == RPS_END, "Actual request size exceeded");
     return OK;
 }

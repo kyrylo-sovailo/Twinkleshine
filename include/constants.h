@@ -20,21 +20,21 @@ Throttling and security:
     - 2. [X] Maximum memory usage is reached
     - 3. [X] Maximum processor utilization is reached
 - 3. Stop accepting data from a client when:
-    - 1. [ ] Maximum size of input buffer is reached
-    - 2. [ ] Certain size of output buffer is reached
+    - 1. [X] Maximum size of input buffer is reached
+    - 2. [X] Certain size of output buffer is reached
 - 4. Send client 500 and close connection when:
-    - 1. [ ] Error occurred
+    - 1. [X] Error occurred
     - 2. [X] Client sent more than certain amount of data at once
-    - 3. [ ] Client promised to send a request larger than certain amount (TODO: differentiate between too large header and too large body)
-    - 4. [ ] Input buffer is incomplete for certain time
+    - 3. [X] Client promised to send a request larger than certain amount (TODO: differentiate between too large header and too large body)
+    - 4. [X] Input buffer is incomplete for certain time
 - 5. Close connection without sending 500 when:
-    - 1. [ ] 4.1 but output buffer is not empty
-    - 2. [ ] 4.2 but output buffer is not empty
-    - 3. [ ] 4.3 but output buffer is not empty
-    - 4. [ ] 4.4 but output buffer is not empty
-    - 5. [ ] Input buffer is empty for a certain amount of time
-    - 6. [ ] Output buffer is full for certain time
-    - 7. [ ] Output buffer is incomplete for a certain time
+    - 1. [X] 4.1 but output buffer is not empty
+    - 2. [X] 4.2 but output buffer is not empty
+    - 3. [X] 4.3 but output buffer is not empty
+    - 4. [X] 4.4 but output buffer is not empty
+    - 5. [X] Input buffer is empty for a certain amount of time
+    - 6. [X] Output buffer is full for certain time
+    - 7. [X] Output buffer is incomplete for a certain time
 */
 
 /* 1.x */

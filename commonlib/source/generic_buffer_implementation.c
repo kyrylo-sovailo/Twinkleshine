@@ -1,5 +1,4 @@
 #include "../include/buffer_implementation.h"
-#include "../../include/memory.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,23 +16,13 @@ void generic_buffer_initialize(void *buffer)
     *cast = zero;
 }
 
-#define IMPLEMENT_GENERIC_BUFFER_FINALIZE(TYPE, STRUCT_NAME, SIZE_EXPRESSION) \
-{ \
-    const struct STRUCT_NAME zero = ZERO_INIT; \
-    struct STRUCT_NAME* cast = (struct STRUCT_NAME*)buffer; \
-    if (cast->p != NULL) count_free(cast->p, cast->capacity * SIZE_EXPRESSION); \
-    *cast = zero; \
+void generic_buffer_finalize(void *buffer)
+{
+    const struct GenericByteBuffer zero = ZERO_INIT;
+    struct GenericByteBuffer* cast = (struct GenericByteBuffer*)buffer;
+    if (cast->p != NULL) free(cast->p);
+    *cast = zero;
 }
-void generic_buffer_finalize_1(void *buffer)
-IMPLEMENT_GENERIC_BUFFER_FINALIZE(GENERIC_ARGMENT_1, GenericByteBuffer, sizeof(*cast->p))
-void generic_buffer_finalize_2(void *buffer)
-IMPLEMENT_GENERIC_BUFFER_FINALIZE(GENERIC_ARGMENT_2, GenericWordBuffer, sizeof(*cast->p))
-void generic_buffer_finalize_4(void *buffer)
-IMPLEMENT_GENERIC_BUFFER_FINALIZE(GENERIC_ARGMENT_4, GenericDWordBuffer, sizeof(*cast->p))
-void generic_buffer_finalize_8(void *buffer)
-IMPLEMENT_GENERIC_BUFFER_FINALIZE(GENERIC_ARGMENT_8, GenericQWordBuffer, sizeof(*cast->p))
-void generic_buffer_finalize_n(void *buffer, size_t element_sizeof)
-IMPLEMENT_GENERIC_BUFFER_FINALIZE(GENERIC_ARGMENT_1, GenericByteBuffer, element_sizeof)
 
 #define IMPLEMENT_GENERIC_BUFFER_RESIZE(TYPE, STRUCT_NAME, SIZE_EXPRESSION) \
 { \
@@ -43,7 +32,7 @@ IMPLEMENT_GENERIC_BUFFER_FINALIZE(GENERIC_ARGMENT_1, GenericByteBuffer, element_
         TYPE *new_p; \
         size_t new_capacity = (cast->capacity == 0) ? 1 : cast->capacity; \
         while (size > new_capacity) new_capacity *= 2; \
-        new_p = (TYPE*)count_realloc(cast->p, cast->capacity * SIZE_EXPRESSION, new_capacity * SIZE_EXPRESSION); \
+        new_p = (TYPE*)realloc(cast->p, new_capacity * SIZE_EXPRESSION); \
         ARET(new_p != NULL); \
         cast->capacity = new_capacity; \
         cast->p = new_p; \
@@ -70,7 +59,7 @@ IMPLEMENT_GENERIC_BUFFER_RESIZE(GENERIC_ARGMENT_1, GenericByteBuffer, element_si
         TYPE *new_p; \
         size_t new_capacity = (cast->capacity == 0) ? 1 : cast->capacity; \
         while (size > new_capacity) new_capacity *= 2; \
-        new_p = (TYPE*)count_realloc(cast->p, cast->capacity * SIZE_EXPRESSION, new_capacity * SIZE_EXPRESSION); \
+        new_p = (TYPE*)realloc(cast->p, new_capacity * SIZE_EXPRESSION); \
         ARET(new_p != NULL); \
         cast->capacity = new_capacity; \
         cast->p = new_p; \
@@ -97,7 +86,7 @@ IMPLEMENT_GENERIC_BUFFER_RESERVE(GENERIC_ARGMENT_1, GenericByteBuffer, element_s
         TYPE *new_p; \
         size_t new_capacity = (cast->capacity == 0) ? 1 : cast->capacity; \
         while (cast->size + size > new_capacity) new_capacity *= 2; \
-        new_p = (TYPE*)count_realloc(cast->p, cast->capacity * SIZE_EXPRESSION, new_capacity * SIZE_EXPRESSION); \
+        new_p = (TYPE*)realloc(cast->p, new_capacity * SIZE_EXPRESSION); \
         ARET(new_p != NULL); \
         cast->capacity = new_capacity; \
         cast->p = new_p; \
@@ -123,7 +112,7 @@ IMPLEMENT_GENERIC_BUFFER_APPEND(GENERIC_ARGMENT_1, GenericByteBuffer, element_si
     if (cast->size + 1 > cast->capacity) \
     { \
         const size_t new_capacity = (cast->capacity == 0) ? 1 : (cast->capacity * 2); \
-        TYPE *new_p = (TYPE*)count_realloc(cast->p, cast->capacity * SIZE_EXPRESSION, new_capacity * SIZE_EXPRESSION); \
+        TYPE *new_p = (TYPE*)realloc(cast->p, new_capacity * SIZE_EXPRESSION); \
         ARET(new_p != NULL); \
         cast->capacity = new_capacity; \
         cast->p = new_p; \

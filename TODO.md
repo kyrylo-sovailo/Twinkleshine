@@ -1,4 +1,4 @@
- - [ ] Implement limits and throttling (priority: critical)
+ - [X] Implement limits and throttling (priority: critical)
  - [ ] Implement Gopher
  - [ ] Implement Gemini
  - [ ] Implement HTTPS (priority: high)
