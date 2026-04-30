@@ -35,21 +35,6 @@ enum ErrorFlags
 /* First N sockets are reserved, polls is N entries longer than clients */
 #define RESERVED_SOCKETS 1
 
-/* Check whether timeout is still in the future and update remaining time if so */
-static bool check_timeout(time_t timeout, time_t now, int *remaining)
-{
-    if (timeout >= now)
-    {
-        return true;
-    }
-    else
-    {
-        const int local_remaining = (int)(timeout - now);
-        if (local_remaining < *remaining) *remaining = local_remaining;
-        return false;
-    }
-}
-
 /* Sends the given value */
 static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not_all) NODISCARD;
 static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not_all)
@@ -376,6 +361,51 @@ static bool client_process_makes_sense_to_send(struct Client *client)
     return client_process_output_buffer_size(client) > 0;
 }
 
+static struct Error *client_process_check_one(time_t timeout, time_t now, int *remaining) NODISCARD;
+static struct Error *client_process_check_one(time_t timeout, time_t now, int *remaining)
+{
+    if (remaining == NULL)
+    {
+        /* Check */
+        ARET(timeout >= now);
+    }
+    else
+    {
+        /* Arm */
+        const int local_remaining = (int)(timeout - now);
+        if (local_remaining < *remaining) *remaining = local_remaining;
+    }
+    return OK;
+}
+
+static struct Error *client_process_check(int *error_flags, struct Client *client, time_t now, int *remaining) NODISCARD;
+static struct Error *client_process_check(int *error_flags, struct Client *client, time_t now, int *remaining)
+{
+    *error_flags = ERF_MESSAGE | ERR_INCOMPLETE_INPUT | ERF_LOG | ERF_CLOSE;
+    if (client->input_buffer.size > 0)
+    {
+        /* Failure -> send ERR_INCOMPLETE_INPUT and close */
+        PRET(client_process_check_one(client->last_input_complete + MAX_INCOMPLETE_INPUT_TIME, now, remaining));
+    }
+    *error_flags = ERF_DEFAULT;
+    if (client->input_buffer.size == 0)
+    {
+        /* Failure -> close */
+        PRET(client_process_check_one(client->last_input_complete + MAX_NO_INPUT_TIME, now, remaining));
+    }
+    if (client_process_output_buffer_size(client) >= MAX_OUTPUT_BUFFER_SIZE)
+    {
+        /* Failure -> close */
+        PRET(client_process_check_one(client->last_input_complete + MAX_FULL_OUTPUT_TIME, now, remaining));
+    }
+    if (client_process_output_buffer_size(client) > 0)
+    {
+        /* Failure -> close */
+        PRET(client_process_check_one(client->last_input_complete + MAX_INCOMPLETE_OUTPUT_TIME, now, remaining));
+    }
+    return OK;
+}
+
 /* Processes client, call when revents has something to it */
 static struct Error *client_process(struct Client *client, struct pollfd *poll, int *remaining, time_t now) NODISCARD;
 static struct Error *client_process(struct Client *client, struct pollfd *poll, int *remaining, time_t now)
@@ -388,12 +418,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
     AGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed"); /* Failure -> close */
 
     /* Check if connection should be terminated */
-    error_flags = ERF_MESSAGE | ERR_INCOMPLETE_INPUT | ERF_LOG | ERF_CLOSE;
-    AGOTO(check_timeout(client->last_input_complete  + MAX_INCOMPLETE_INPUT_TIME,   now, remaining)); /* Failure -> send ERR_INCOMPLETE_INPUT and close */
-    error_flags = ERF_DEFAULT;
-    AGOTO(check_timeout(client->last_input_not_empty + MAX_NO_INPUT_TIME,           now, remaining)); /* Failure -> close */
-    AGOTO(check_timeout(client->last_output_not_full + MAX_FULL_OUTPUT_TIME,        now, remaining)); /* Failure -> close */
-    AGOTO(check_timeout(client->last_output_complete + MAX_INCOMPLETE_OUTPUT_TIME,  now, remaining)); /* Failure -> close */
+    PGOTO(client_process_check(&error_flags, client, now, NULL));
     
     /* Do everything you can */
     receive_may_succeed = !(((poll->events & POLLIN) != 0) && ((poll->revents & POLLIN) == 0));
@@ -467,6 +492,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
             poll->events = POLLHUP | POLLERR;
             if (client_process_makes_sense_to_receive(client)) poll->events |= POLLIN;
             if (client_process_makes_sense_to_send(client)) poll->events |= POLLOUT;
+            PIGNORE(client_process_check(&error_flags, client, now, remaining));
             return OK;
         }
     }
@@ -521,7 +547,7 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
     for (client_i = clients->p; client_i < clients->p + clients->size; client_i++)
     {
         const size_t shuffle_index = client_i->shuffle_index;
-        PRET(client_process(clients->p + shuffle_index, polls->p + shuffle_index + 1, remaining, now));
+        PRET(client_process(clients->p + shuffle_index, polls->p + shuffle_index + RESERVED_SOCKETS, remaining, now));
     }
     clients_remove_finalized(clients, polls);
 

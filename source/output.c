@@ -48,29 +48,27 @@ static time_t global_mktime(struct tm *global_calender, time_t probe)
 }
 
 /* Deletes N oldest files */
-static bool delete(unsigned int number)
+static void delete(unsigned int number)
 {
     unsigned int log_i;
-    bool success = true;
 
     for (log_i = 0; log_i < number; log_i++)
     {
-        if (unlink(g_logs[log_i].path) < 0) success = false;
+        const struct Log zero = ZERO_INIT;
+        (void)unlink(g_logs[log_i].path);
         count_free(g_logs[log_i].path, (strlen(g_logs[log_i].path) + 1) * sizeof(*g_logs[log_i].path));
-        g_logs[log_i].path = NULL;
+        g_logs[log_i] = zero;
         g_logs_total_size -= g_logs[log_i].size;
+        g_logs_size--;
     }
-    memmove(&g_logs[0], &g_logs[number], (g_logs_size - number) * sizeof(*g_logs));
-    g_logs_size -= number;
-    return success;
+    memmove(&g_logs[0], &g_logs[number], g_logs_size * sizeof(*g_logs));
 }
 
 /* Delete oldest logs until age and total size are satisfied */
-static bool cleanup(time_t global_now)
+static void cleanup(time_t global_now)
 {
     unsigned long int logs_total_size_copy = g_logs_total_size;
     unsigned int log_i;
-    bool success = true;
 
     /* Count how many files should be deleted to satisfy constraints */
     for (log_i = 0; log_i < g_logs_size; log_i++)
@@ -80,14 +78,12 @@ static bool cleanup(time_t global_now)
     }
 
     /* Delete */
-    success &= delete(log_i);
-    return success;
+    delete(log_i);
 }
 
 /* Inserts new log into log array or deletes it if it is too old */
-static bool insert(time_t global_now, struct Log *log)
+static void insert(time_t global_now, const struct Log *log)
 {
-    bool success = true;
     unsigned int log_i;
 
     /* Count how many logs is the new log older than */
@@ -96,30 +92,28 @@ static bool insert(time_t global_now, struct Log *log)
         if (log->global_start < g_logs[g_logs_size - log_i - 1].global_start) break; /* If new log is older than log i (backwards), break */
     }
 
-    /* Check if the log is really old */
-    if (log_i == g_logs_size)
+    /* Check if the log is logs are full and the new log is the oldest */
+    if (g_logs_size == sizeof(g_logs) / sizeof(*g_logs) && log_i == g_logs_size)
     {
-        if (unlink(g_logs[log_i].path) < 0) success = false;
-        count_free(g_logs[log_i].path, (strlen(g_logs[log_i].path) + 1) * sizeof(*g_logs[log_i].path));
-        g_logs[log_i].path = NULL;
-        return success;
+        (void)unlink(log->path);
+        count_free(log->path, (strlen(log->path) + 1) * sizeof(*log->path));
+        return;
     }
 
-    /* Check if logs are full */
-    if (g_logs_size == sizeof(g_logs) / sizeof(*g_logs))
+    /* Check if the log is logs are full and the new log is not the oldest */
+    if (g_logs_size == sizeof(g_logs) / sizeof(*g_logs) && log_i != g_logs_size)
     {
-        success &= delete(1);
+        delete(1);
     }
 
     /* Insert */
     memmove(&g_logs[g_logs_size - log_i + 1], &g_logs[g_logs_size - log_i], log_i * sizeof(*g_logs));
-    g_logs[g_logs_size - log_i] = *log; /* TODO: ensure no double free is possible */
+    g_logs[g_logs_size - log_i] = *log;
     g_logs_size++;
     g_logs_total_size += log->size;
 
     /* Cleanup */
-    success &= cleanup(global_now);
-    return success;
+    cleanup(global_now);
 }
 
 void output_module_initialize(void)
@@ -197,14 +191,7 @@ void output_module_initialize(void)
         
 
         /* Insert */
-        if (!insert(global_now, &new_log))
-        {
-            /* Insert failed, fail */
-            count_free(new_log.path, (strlen(new_log.path) + 1) * sizeof(*new_log.path));
-            closedir(directory);
-            g_catastrophic = true;
-            return;
-        }
+        insert(global_now, &new_log);
         ZERO_AND_FORGET(struct Log, new_log);
     }
 
@@ -263,12 +250,7 @@ void output_open(bool output_error)
         if (new_log.path == NULL) { g_catastrophic = true; return; }
         memcpy(new_log.path, log_directory, log_directory_length);
         sprintf(new_log.path + log_directory_length, "%u-%u-%u.log", global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
-        if (!insert(global_now, &new_log))
-        {
-            count_free(new_log.path, (strlen(new_log.path) + 1) * sizeof(*new_log.path));
-            g_catastrophic = true;
-            return;
-        }
+        insert(global_now, &new_log);
         ZERO_AND_FORGET(struct Log, new_log);
     }
 
@@ -344,5 +326,5 @@ void output_print_client(bool error_output, const struct Client *client)
     const unsigned short port = ntohs(cast->sin_port);
     char address[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &cast->sin_addr, address, sizeof(address));
-    output_print(error_output, "%s:%u\n", address, (unsigned int)port);
+    output_print(error_output, "client %s:%u:\n", address, (unsigned int)port);
 }
