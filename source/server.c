@@ -2,6 +2,7 @@
 #include "../include/client.h"
 #include "../include/constants.h"
 #include "../include/memory.h"
+#include "../include/output.h"
 #include "../include/request_parser.h"
 #include "../include/request_processor.h"
 #include "../include/ring.h"
@@ -31,9 +32,6 @@ enum ErrorFlags
 
     ERF_DEFAULT = ERF_LOG | ERF_CLOSE
 };
-
-/* First N sockets are reserved, polls is N entries longer than clients */
-#define RESERVED_SOCKETS 1
 
 /* Sends the given value */
 static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not_all) NODISCARD;
@@ -109,23 +107,24 @@ static void send_low_resources(struct Client *client, int fd, bool max_clients, 
     error_finalize(error);
 }
 
-/* Creates listening sockets and puts them into polls */
-static struct Error *create_listening_sockets(struct PollBuffer *polls) NODISCARD;
-static struct Error *create_listening_sockets(struct PollBuffer *polls)
+/* Creates one listening socket */
+static struct Error *create_listening_socket(struct PollBuffer *polls, const struct sockaddr *address, const struct sockaddr *reserve, socklen_t address_sizeof)
 {
     struct Error *error;
+    const int one = 1;
     struct pollfd new_poll = { -1, POLLIN, 0 };
-    struct sockaddr_in socket_address = ZERO_INIT;
-    int one = 1;
 
-    new_poll.fd = socket(AF_INET, SOCK_STREAM, 0);
+    new_poll.fd = socket(address->sa_family, SOCK_STREAM, 0);
     AGOTO0(new_poll.fd >= 0, "socket() failed"); /* Failure -> fatal */
     AGOTO0(setsockopt(new_poll.fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) >= 0, "setsockopt() failed"); /* Failure -> fatal */
-
-    socket_address.sin_family = AF_INET;
-    socket_address.sin_addr.s_addr = INADDR_ANY;
-    socket_address.sin_port = htons(8080);
-    AGOTO0(bind(new_poll.fd, (struct sockaddr*)&socket_address, sizeof(socket_address)) >= 0, "bind() failed"); /* Failure -> fatal */
+    if (address->sa_family == AF_INET6)
+    {
+        AGOTO0(setsockopt(new_poll.fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one)) >= 0, "setsockopt() failed"); /* Failure -> fatal */
+    }
+    if (!(bind(new_poll.fd, address, address_sizeof) >= 0))
+    {
+        AGOTO0(bind(new_poll.fd, reserve, address_sizeof) >= 0, "bind() failed"); /* Failure -> fatal */
+    }
     AGOTO0(listen(new_poll.fd, MAX_CLIENTS_IN_QUEUE) >= 0, "listed() failed"); /* Failure -> fatal */
     PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
     return OK;
@@ -135,46 +134,72 @@ static struct Error *create_listening_sockets(struct PollBuffer *polls)
     return error;
 }
 
+static struct Error *create_listening_sockets(struct PollBuffer *polls) NODISCARD;
+static struct Error *create_listening_sockets(struct PollBuffer *polls)
+{
+    struct sockaddr_in ipv4 = ZERO_INIT, reserved_ipv4 = ZERO_INIT;
+    struct sockaddr_in6 ipv6 = ZERO_INIT, reserved_ipv6 = ZERO_INIT;
+
+    ipv4.sin_family = AF_INET;
+    ipv4.sin_addr.s_addr = INADDR_ANY;
+    ipv4.sin_port = htons(80);
+    reserved_ipv4 = ipv4;
+    reserved_ipv4.sin_port = htons(8080);
+    PRET(create_listening_socket(polls, (struct sockaddr*)&ipv4, (struct sockaddr*)&reserved_ipv4, sizeof(ipv4)));
+    
+    ipv6.sin6_family = AF_INET6;
+    ipv6.sin6_addr = in6addr_any;
+    ipv6.sin6_port = ipv4.sin_port;
+    reserved_ipv6 = ipv6;
+    reserved_ipv6.sin6_port = reserved_ipv4.sin_port;
+    PRET(create_listening_socket(polls, (struct sockaddr*)&ipv6, (struct sockaddr*)&reserved_ipv6, sizeof(ipv6)));
+    
+    return OK;
+}
+
 /* Accepts new connections and puts them into clients */
 static struct Error *process_listening_sockets(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now) NODISCARD;
 static struct Error *process_listening_sockets(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now)
 {
     struct Error *error;
-    bool max_clients, max_memory, max_utilization;
-    struct pollfd new_poll = { -1, 0, 0 };
+    const bool max_clients = clients->size >= MAX_CLIENTS;
+    const bool max_memory = g_memory >= MAX_MEMORY_USAGE;
+    const bool max_utilization = utilization >= MAX_PROCESSOR_UTILIZATION;
     struct Client new_client = ZERO_INIT;
-    socklen_t socket_address_size = sizeof(new_client.address);
-    
-    AGOTO0((polls->p[0].revents & (POLLERR | POLLHUP)) == 0, "listening socket failed"); /* Failure -> fatal */
-    if ((polls->p[0].revents & POLLIN) == 0) return OK;
+    struct pollfd new_poll = { -1, 0, 0 };
+    unsigned char i;
 
-    /* Create poll */
-    new_poll.fd = accept(polls->p[0].fd, (struct sockaddr*)&new_client.address, &socket_address_size);
-    AGOTO0(new_poll.fd >= 0, "accept() failed"); /* Failure -> fatal */
-    AGOTO0(fcntl(new_poll.fd, F_SETFL, O_NONBLOCK) >= 0, "fcntl() failed"); /* Failure -> fatal */
-    max_clients = clients->size >= MAX_CLIENTS;
-    max_memory = g_memory >= MAX_MEMORY_USAGE;
-    max_utilization = utilization >= MAX_PROCESSOR_UTILIZATION;
-    if (max_clients || max_memory || max_utilization)
-    {
-        send_low_resources(&new_client, new_poll.fd, max_clients, max_memory, max_utilization);
-        close(new_poll.fd);
-        return OK;
-    }
-    PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
-    
-
-    /* Create client */
     new_client.last_input_complete = now;
     new_client.last_input_not_empty = now;
     new_client.last_output_not_full = now;
     new_client.last_output_complete = now;
-    PGOTO(clients_append(clients, &new_client, 1)); /* Failure -> fatal */
+    
+    for (i = 0; i < ACCEPTING_SOCKETS; i++)
+    {
+        socklen_t socket_address_size = sizeof(new_client.address);
+        AGOTO0((polls->p[i].revents & (POLLERR | POLLHUP)) == 0, "listening socket failed"); /* Failure -> fatal */
+        if ((polls->p[i].revents & POLLIN) == 0) continue;
+
+        /* Create poll */
+        new_poll.fd = accept(polls->p[i].fd, (struct sockaddr*)&new_client.address, &socket_address_size);
+        AGOTO0(new_poll.fd >= 0, "accept() failed"); /* Failure -> fatal */
+        AGOTO0(fcntl(new_poll.fd, F_SETFL, O_NONBLOCK) >= 0, "fcntl() failed"); /* Failure -> fatal */
+        if (max_clients || max_memory || max_utilization)
+        {
+            send_low_resources(&new_client, new_poll.fd, max_clients, max_memory, max_utilization);
+            close(new_poll.fd);
+            continue;
+        }
+        PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
+
+        /* Create client */
+        PGOTO(clients_append(clients, &new_client, 1)); /* Failure -> fatal */
+    }
     return OK;
 
     failure:
     poll_finalize(&new_poll);
-    clients->size = polls->size - RESERVED_SOCKETS; /* No finalizer because nothing is allocated */
+    clients->size = polls->size - ACCEPTING_SOCKETS; /* No finalizer because nothing is allocated */
     return error;
 }
 
@@ -547,7 +572,7 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
     for (client_i = clients->p; client_i < clients->p + clients->size; client_i++)
     {
         const size_t shuffle_index = client_i->shuffle_index;
-        PRET(client_process(clients->p + shuffle_index, polls->p + shuffle_index + RESERVED_SOCKETS, remaining, now));
+        PRET(client_process(clients->p + shuffle_index, polls->p + shuffle_index + ACCEPTING_SOCKETS, remaining, now));
     }
     clients_remove_finalized(clients, polls);
 
@@ -570,9 +595,12 @@ struct Error *server_main(void)
 
     /* Initialize */
     tables_module_initialize();
-
-    /* Create socket */
     PGOTO(create_listening_sockets(&polls));
+    output_open(false);
+    output_print(false, "Twinkleshine started\n");
+    output_print_time(false);
+    output_print(false, "\n");
+    output_close(false);
     
     /* Loop */
     utilization_clock = clock();

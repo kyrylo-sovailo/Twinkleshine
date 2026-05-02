@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -322,9 +323,19 @@ void output_print_time(bool output_error)
 
 void output_print_client(bool error_output, const struct Client *client)
 {
-    const struct sockaddr_in *cast = (const struct sockaddr_in*)&client->address;
-    const unsigned short port = ntohs(cast->sin_port);
-    char address[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &cast->sin_addr, address, sizeof(address));
+    char address[(INET6_ADDRSTRLEN > INET_ADDRSTRLEN) ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN];
+    unsigned short port;
+    if (client->address.ss_family == AF_INET6)
+    {
+        const struct sockaddr_in6 *cast = (const struct sockaddr_in6*)&client->address;
+        inet_ntop(AF_INET6, &cast->sin6_addr, address, sizeof(address));
+        port = ntohs(cast->sin6_port);
+    }
+    else
+    {
+        const struct sockaddr_in *cast = (const struct sockaddr_in*)&client->address;
+        inet_ntop(AF_INET, &cast->sin_addr, address, sizeof(address));
+        port = ntohs(cast->sin_port);
+    }
     output_print(error_output, "client %s:%u:\n", address, (unsigned int)port);
 }

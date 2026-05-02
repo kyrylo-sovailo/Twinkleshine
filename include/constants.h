@@ -94,4 +94,12 @@ Logging
 #define MAX_LOG_AGE           (1 * WEEK)      /* 3 */
 #define MAX_LOG_SIZE          (1 * MEGABYTE)  /* 4 */
 
+/*
+Socket allocation
+*/
+
+#define ACCEPTING_SOCKETS 2
+#define ACCEPTING_SOCKET_IP4_HTTP 0
+#define ACCEPTING_SOCKET_IP6_HTTP 1
+
 #endif

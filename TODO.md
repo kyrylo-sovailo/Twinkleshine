@@ -2,7 +2,7 @@
  - [ ] Implement Gopher
  - [ ] Implement Gemini
  - [ ] Implement HTTPS (priority: high)
- - [ ] Implement IPv6 sockets
+ - [X] Implement IPv6 sockets
  - [X] Implement 404, 500 and other special pages (priority: critical)
  - [ ] Implement fun facts (priority: high)
  - [ ] Implement multithreading
