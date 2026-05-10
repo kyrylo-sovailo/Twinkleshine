@@ -1,9 +1,7 @@
 #include "../include/error.h"
 #include "../../include/output.h"
-#include "../include/path.h"
 #include "../include/string.h"
 
-#include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +12,19 @@ struct Error
     struct Error *next;
 };
 
+const cchar_t *g_application = NULL;
+
 struct Error *error_internal_allocate(const cchar_t *format, ...)
+{
+    struct Error *result;
+    va_list va;
+    va_start(va, format);
+    result = error_internal_vallocate(format, va);
+    va_end(va);
+    return result;
+}
+
+struct Error *error_internal_vallocate(const cchar_t *format, va_list va)
 {
     /* Create new error buffer */
     struct Error *error = (struct Error*)malloc(sizeof(*error));
@@ -22,11 +32,8 @@ struct Error *error_internal_allocate(const cchar_t *format, ...)
     {
         /* Print */
         const struct Error zero = ZERO_INIT;
-        va_list va;
         *error = zero;
-        va_start(va, format);
-        if (string_internal_vprint_append(&error->message, true, format, va)) {}
-        va_end(va);
+        PIGNORE(string_internal_vprint_append(&error->message, true, format, va));
         return error;
     }
     else
@@ -38,17 +45,24 @@ struct Error *error_internal_allocate(const cchar_t *format, ...)
 
 struct Error *error_internal_allocate_append(struct Error *error, const cchar_t *format, ...)
 {
+    struct Error *result;
+    va_list va;
+    va_start(va, format);
+    result = error_internal_vallocate_append(error, format, va);
+    va_end(va);
+    return result;
+}
+
+struct Error *error_internal_vallocate_append(struct Error *error, const cchar_t *format, va_list va)
+{
     /* Create new error buffer */
     struct Error *new_error = (struct Error*)malloc(sizeof(*new_error));
     if (new_error != NULL)
     {
         /* Print */
         const struct Error zero = ZERO_INIT;
-        va_list va;
         *new_error = zero;
-        va_start(va, format);
-        if (string_internal_vprint_append(&new_error->message, true, format, va)) {}
-        va_end(va);
+        PIGNORE(string_internal_vprint_append(&new_error->message, true, format, va));
 
         /* Append */
         new_error->next = error;
@@ -115,9 +129,9 @@ void error_print(const struct Error *error, const struct Client *client)
     const cchar_t *message;
 
     /* Print program name */
-    if (g_application.p == NULL) message = COMMON_L("APPLICATION NULL");
-    else message = g_application.p;
     output_open(true);
+    if (g_application == NULL) message = "APPLICATION NULL";
+    else message = g_application;
     output_print(true, COMMON_S COMMON_L(":") COMMON_N, message);
     if (client != NULL) output_print_client(true, client);
 

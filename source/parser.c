@@ -1,46 +1,52 @@
-#include "../include/request_parser.h"
+#include "../include/parser.h"
 #include "../commonlib/include/error.h"
 #include "../include/constants.h"
+#include "../include/error.h"
+#include "../include/processor.h"
 #include "../include/ring.h"
 #include "../include/tables.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-static struct Error *parse_name_value(struct RequestParser *parser, const struct Ring *input)
+static struct ExError parser_parse_name_value(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
 {
+    const struct ExError EXOK = { OK };
     struct Value name;
-    PRET(ring_get(input, &parser->current_name, false, &name)); /* TODO: no differentiation between fatal and non-fatal */
+    EXPRETF(ring_get(request_stream, &parser->current_name, false, &name), EEF_CLOSE_LOG_DIE);
     if (value_compare_case_mem(&name, "content-length", strlen("content-length")))
     {
         struct Value value;
-        PRET(ring_get(input, &parser->current_value, false, &value));
+        EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF_CLOSE_LOG_DIE);
         value_trim(&value);
-        ARET4(value_to_uint(&value, &parser->remaining_content),
-            "Invalid integer: %.*s%.*s", (int)value.parts[0].size, value.parts[0].p, (int)value.parts[1].size, value.parts[1].p);
-        ARET0(parser->current_value.offset + parser->current_value.size + parser->remaining_content <= MAX_REQUEST_SIZE,
-            "Promised request size exceeded");
+        EXARET0(value_to_uint(&value, &parser->remaining_content),
+            "Invalid integer",
+            EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+        EXARET0(parser->current_value.offset + parser->current_value.size + parser->remaining_content <= MAX_REQUEST_SIZE,
+            "Promised request size exceeded",
+            EEF_SEND_CLOSE_LOG(FR_MAX_REQUEST_CONTENT_SIZE));
     }
     else if (value_compare_case_mem(&name, "connection", strlen("connection")))
     {
         struct Value value;
-        PRET(ring_get(input, &parser->current_value, false, &value));
+        EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF_CLOSE_LOG_DIE);
         while (true)
         {
             struct Value current_value;
             const bool parts_remaining = value_parse_comma(&value, &current_value);
             value_trim(&current_value);
-            if (value_compare_case_mem(&current_value, "keep-alive", strlen("keep-alive"))) { parser->request.keep_alive = true; break; }
+            if (value_compare_case_mem(&current_value, "keep-alive", strlen("keep-alive"))) { request->keep_alive = true; break; }
             if (!parts_remaining) break;
         }
     }
-    return OK;
+    return EXOK;
 }
 
-static struct Error *request_parser_part(struct RequestParser *parser, const struct Ring *input, const struct ValuePart *part)
+static struct ExError parser_parse_part(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ValuePart *part)
 {
+    const struct ExError EXOK = { OK };
     const char *p;
-    for (p = part->p; p < part->p + part->size; p++, parser->offset++)
+    for (p = part->p; p < part->p + part->size; p++, request->stream_size++)
     {
         const char c = *p;
         const unsigned char c_type = character_map[(unsigned char)c];
@@ -54,11 +60,11 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_METHOD) != 0)
             {
-                parser->request.method.offset = parser->offset;
-                parser->request.method.size = 1;
+                request->method.offset = request->stream_size;
+                request->method.size = 1;
                 parser->state = RPS_WAIT_METHOD_END;
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
             
         case RPS_WAIT_METHOD_END:
@@ -68,9 +74,9 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_METHOD) != 0)
             {
-                parser->request.method.size++;
+                request->method.size++;
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_RESOURCE_BEGIN:
@@ -80,11 +86,11 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_RESOURCE) != 0)
             {
-                parser->request.resource.offset = parser->offset;
-                parser->request.resource.size = 1;
+                request->resource.offset = request->stream_size;
+                request->resource.size = 1;
                 parser->state = RPS_WAIT_RESOURCE_END;
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_RESOURCE_END:
@@ -94,9 +100,9 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_RESOURCE) != 0)
             {
-                parser->request.resource.size++;
+                request->resource.size++;
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_PROTOCOL_BEGIN:
@@ -106,11 +112,11 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_PROTOCOL) != 0)
             {
-                parser->request.protocol.offset = parser->offset;
-                parser->request.protocol.size = 1;
+                request->protocol.offset = request->stream_size;
+                request->protocol.size = 1;
                 parser->state = RPS_WAIT_PROTOCOL_END;
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_PROTOCOL_END:
@@ -120,14 +126,14 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_PROTOCOL) != 0)
             {
-                parser->request.protocol.size++;
+                request->protocol.size++;
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
                 if (c == '\r') parser->state = RPS_WAIT_LINE_LF;
                 else { parser->tolerated_lf = true; parser->state = RPS_WAIT_NAME_BEGIN; } /* Tolerating LF ending */
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_LINE_CR:
@@ -140,7 +146,7 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
                 if (c == '\r') parser->state = RPS_WAIT_LINE_LF;
                 else { parser->tolerated_lf = true; parser->state = RPS_WAIT_NAME_BEGIN; } /* Tolerating LF ending */
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_LINE_LF:
@@ -152,7 +158,7 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             else if ((c_type & CM_NAME) != 0) /* Tolerating CR ending */
             {
                 parser->tolerated_cr = true;
-                parser->current_name.offset = parser->offset;
+                parser->current_name.offset = request->stream_size;
                 parser->current_name.size = 1;
                 parser->state = RPS_WAIT_NAME_END;
             }
@@ -177,7 +183,7 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_NAME) != 0)
             {
-                parser->current_name.offset = parser->offset;
+                parser->current_name.offset = request->stream_size;
                 parser->current_name.size = 1;
                 parser->state = RPS_WAIT_NAME_END;
             }
@@ -194,7 +200,7 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
                     parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received ?? LF */
                 }
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
             
         case RPS_WAIT_NAME_END:
@@ -208,11 +214,11 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if (c == ':')
             {
-                parser->current_value.offset = parser->offset + 1;
+                parser->current_value.offset = request->stream_size + 1;
                 parser->current_value.size = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_COLON:
@@ -222,11 +228,11 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if (c == ':')
             {
-                parser->current_value.offset = parser->offset + 1;
+                parser->current_value.offset = request->stream_size + 1;
                 parser->current_value.size = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
             
         case RPS_WAIT_VALUE_END:
@@ -236,7 +242,7 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
-                PRET(parse_name_value(parser, input));
+                EXPRET(parser_parse_name_value(parser, request, request_stream));
                 if (c == '\r')
                 {
                     if (!parser->tolerated_cr) parser->state = RPS_WAIT_LINE_LF;
@@ -248,7 +254,7 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
                     parser->state = RPS_WAIT_NAME_BEGIN;
                 }
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_FINAL_LINE_LF:
@@ -256,7 +262,7 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             {
                 parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received CR LF CR LF */
             }
-            else RET1("Invalid symbol: %d", (int)c);
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_CONTENT:
@@ -265,37 +271,41 @@ static struct Error *request_parser_part(struct RequestParser *parser, const str
             if (available_content >= parser->remaining_content)
             {
                 p += parser->remaining_content;
-                parser->offset += parser->remaining_content;
+                request->stream_size += parser->remaining_content;
                 parser->state = RPS_END;
             }
             else
             {
                 p += available_content; /* aka p = part->p + part->size */
-                parser->offset += available_content;
+                request->stream_size += available_content;
             }
-            return OK; /* Breaking out of switch and for without incrementing offset */
+            return EXOK; /* Breaking out of switch and for without incrementing offset */
 
         default: /* RPS_END */
-            return OK; /* Breaking out of switch and for without incrementing offset */
+            return EXOK; /* Breaking out of switch and for without incrementing offset */
         }
     }
-    return OK;
+    return EXOK;
 }
 
-struct Error *request_parser_parse(struct RequestParser *parser, const struct Ring *input)
+struct ExError parser_parse(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
 {
+    const struct ExError EXOK = { OK };
     struct ValueLocation not_parsed_location;
     struct Value not_parsed;
     unsigned char i;
     
-    not_parsed_location.offset = parser->offset;
-    if (input->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
-    else not_parsed_location.size = input->size - not_parsed_location.offset;
-    PRET(ring_get(input, &not_parsed_location, false, &not_parsed));
+    not_parsed_location.offset = request->stream_size;
+    if (request_stream->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
+    else not_parsed_location.size = request_stream->size - not_parsed_location.offset;
+    EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF_CLOSE_LOG_DIE);
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        PRET(request_parser_part(parser, input, &not_parsed.parts[i]));
+        EXPRET(parser_parse_part(parser, request, request_stream, &not_parsed.parts[i]));
     }
-    if (input->size >= MAX_REQUEST_SIZE) ARET0(parser->state == RPS_END, "Actual request size exceeded");
-    return OK;
+    if (request_stream->size >= MAX_REQUEST_SIZE)
+    {
+        EXARET0(parser->state == RPS_END, "Actual request size exceeded", EEF_SEND_CLOSE_LOG(FR_MAX_REQUEST_HEADER_SIZE));
+    }
+    return EXOK;
 }

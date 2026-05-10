@@ -5,6 +5,8 @@
 #include "char.h"
 #include "macro.h"
 
+#include <stdarg.h>
+
 /*#define ERROR_EMBED_ARGUMENTS*/ /* Store file and line as a part of the message (increases file size) */
 #define ERROR_INCLUDE_EXPRESSION /* Include boolean expression in the trace */
 
@@ -93,11 +95,16 @@ struct Client;
 /* Ignores the result of expression when it is guaranteed to succeed (PIGNORE = propagate ignore) */
 #define PIGNORE(EXPRESSION) { struct Error *check = EXPRESSION; if (check != OK) {} else {} }
 
+/* Application name to be reported */
+extern const cchar_t *g_application;
+
 /* Creates error (guaranteed to succeed) */
 struct Error *error_internal_allocate(const cchar_t *format, ...) NODISCARD PRINTFLIKE(1, 2);
+struct Error *error_internal_vallocate(const cchar_t *format, va_list va) NODISCARD PRINTFLIKE(1, 0);
 
 /* Appends error to an existing error (guaranteed to succeed) */
 struct Error *error_internal_allocate_append(struct Error *error, const cchar_t *format, ...) NODISCARD PRINTFLIKE(2, 3);
+struct Error *error_internal_vallocate_append(struct Error *error, const cchar_t *format, va_list va) NODISCARD PRINTFLIKE(2, 0);
 
 /* Gets error code to be returned by application (guaranteed to succeed) */
 int error_get_exit_code(const struct Error *error);

@@ -1,15 +1,26 @@
-#ifndef REQUEST_PARSER_H
-#define REQUEST_PARSER_H
+#ifndef PARSER_H
+#define PARSER_H
 
 #include "../commonlib/include/macro.h"
-#include "request.h"
 #include "value.h"
+#include "extended_error.h"
 
-struct Error;
 struct Ring;
 
+/* Request fields that are necessary to form response */
+struct Request
+{
+    size_t stream_size;             /* Total request size */
+    struct ValueLocation method;    /* Requested method */
+    struct ValueLocation resource;  /* Requested resource */
+    struct ValueLocation protocol;  /* Protocol version */
+    bool keep_alive;                /* Keep connection alive */
+
+    struct ValueLocation content;   /* Content */
+};
+
 /* Client's state machine */
-enum RequestParserState
+enum ParserState
 {
     RPS_WAIT_METHOD_BEGIN = 0,
     RPS_WAIT_METHOD_END,
@@ -30,12 +41,10 @@ enum RequestParserState
     RPS_END
 };
 
-/* Client's state (except the memory itself) */
-struct RequestParser
+/* Client's full state machine, complements Request */
+struct Parser
 {
-    struct Request request;             /* Current output */
-    size_t offset;                      /* Number of bytes consumed aka request size */
-    enum RequestParserState state;      /* Current state */
+    enum ParserState state;             /* Current state */
     unsigned int remaining_content;     /* Expected content length */
     bool tolerated_lf, tolerated_cr;    /* Flags that indicate non-conforming implementations, used to avoid waiting for line ends that aren't coming */
     struct ValueLocation current_name;  /* Field name */
@@ -43,6 +52,6 @@ struct RequestParser
 };
 
 /* Feed buffer to parser */
-struct Error *request_parser_parse(struct RequestParser *parser, const struct Ring *input) NODISCARD;
+struct ExError parser_parse(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 
 #endif

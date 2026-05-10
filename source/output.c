@@ -136,7 +136,7 @@ void output_module_initialize(void)
     for (entry = readdir(directory); entry != NULL; entry = readdir(directory))
     {
         const char *p;
-        struct tm global_start_calender = ZERO_INIT;
+        struct tm global_start_calender;
         char *next_p;
         struct Log new_log = ZERO_INIT;
         size_t name_length;
@@ -212,7 +212,7 @@ void output_module_finalize(void)
 void output_open(bool output_error)
 {
     time_t global_now, global_start;
-    struct tm *p_global_now_calender, global_now_calender, global_start_calender = ZERO_INIT;
+    struct tm *p_global_now_calender, global_now_calender, global_start_calender;
     bool create_new_log = false;
     unsigned int create_new_log_number = 0;
     (void)output_error; /* No differentiation between output and error */
@@ -313,11 +313,11 @@ void output_print_time(bool output_error)
     {
         strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &global_calender);
         output_print(output_error, "%s\n", calender_buffer);
-        if (p_local_calender != NULL)
-        {
-            strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &local_calender);
-            output_print(output_error, "%s\n", calender_buffer);
-        }
+    }
+    if (p_local_calender != NULL)
+    {
+        strftime(calender_buffer, sizeof(calender_buffer), "%a, %d %b %Y %H:%M:%S %Z", &local_calender);
+        output_print(output_error, "%s\n", calender_buffer);
     }
 }
 

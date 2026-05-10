@@ -1,4 +1,5 @@
  - [X] Implement limits and throttling (priority: critical)
+ - [ ] Fix the bug where short buffer is freed by every client (priority: critical)
  - [ ] Implement Gopher
  - [ ] Implement Gemini
  - [ ] Implement HTTPS (priority: high)

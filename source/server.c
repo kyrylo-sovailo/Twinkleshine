@@ -1,10 +1,10 @@
 #include "../include/server.h"
 #include "../include/client.h"
 #include "../include/constants.h"
+#include "../include/extended_error.h"
 #include "../include/memory.h"
 #include "../include/output.h"
-#include "../include/request_parser.h"
-#include "../include/request_processor.h"
+#include "../include/parser.h"
 #include "../include/ring.h"
 #include "../include/tables.h"
 
@@ -22,18 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Values for error_flags */
-enum ErrorFlags
-{
-    ERF_MESSAGE = 1 << ERROR_TYPE_BITS, /* Message the client before closing connection */
-    ERF_LOG     = 2 << ERROR_TYPE_BITS, /* Log the incident */
-    ERF_CLOSE   = 4 << ERROR_TYPE_BITS, /* Close the connection */
-    ERF_FATAL   = 8 << ERROR_TYPE_BITS, /* Total failure */
-
-    ERF_DEFAULT = ERF_LOG | ERF_CLOSE
-};
-
-/* Sends the given value */
+/* Sends the given value (Failure -> close and log) */
 static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not_all) NODISCARD;
 static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not_all)
 {
@@ -44,7 +33,7 @@ static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not
         ssize_t signed_sent; size_t sent;
         if (value->parts[i].size == 0) continue;
         signed_sent = send(fd, value->parts[i].p, value->parts[i].size, 0);
-        ARET0(signed_sent >= 0 || errno == EAGAIN || errno == EWOULDBLOCK, "send() failed"); /* Failure -> close/log (decided on higher level) */
+        ARET0(signed_sent >= 0 || errno == EAGAIN || errno == EWOULDBLOCK, "send() failed");
         sent = (signed_sent >= 0) ? (size_t)signed_sent : 0;
         value->parts[i].p += sent;
         value->parts[i].size -= sent;
@@ -54,17 +43,16 @@ static struct Error *send_value(struct ConstValue *value, int fd, bool *sent_not
 }
 
 /* Receives the given amount of bytes to ring */
-static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, size_t size, bool *received_not_all, bool *received_zero) NODISCARD;
-static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, size_t size, bool *received_not_all, bool *received_zero)
+static struct ExError receive_value(struct Ring *ring, int fd, size_t size, bool *received_not_all, bool *received_zero) NODISCARD;
+static struct ExError receive_value(struct Ring *ring, int fd, size_t size, bool *received_not_all, bool *received_zero)
 {
+    const struct ExError EXOK = { OK };
     struct Value value;
     unsigned char i;
 
     /* Get buffer */
-    PRET(ring_reserve(ring, ring->size + size)); /* Failure -> close */
-    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
-    PRET(ring_push_get(ring, size, &value)); /* Failure -> fatal */
-    *error_flags = ERF_DEFAULT;
+    EXPRETF(ring_reserve(ring, ring->size + size), EEF_CLOSE_LOG);
+    EXPRETF(ring_push_get(ring, size, &value), EEF_CLOSE_LOG_DIE);
 
     /* Receive */
     for (i = 0; i < VALUE_PARTS; i++)
@@ -72,7 +60,7 @@ static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, 
         ssize_t signed_received; size_t received;
         if (value.parts[i].size == 0) continue;
         signed_received = read(fd, value.parts[i].p, value.parts[i].size);
-        ARET0(signed_received >= 0 || errno == EAGAIN || errno == EWOULDBLOCK, "read() failed"); /* Failure -> close */
+        EXARET0(signed_received >= 0 || errno == EAGAIN || errno == EWOULDBLOCK, "read() failed", EEF_CLOSE_LOG);
         received = (signed_received >= 0) ? (size_t)signed_received : 0;
         value.parts[i].p += received;
         value.parts[i].size -= received;
@@ -80,34 +68,33 @@ static struct Error *receive_value(int *error_flags, struct Ring *ring, int fd, 
     }
 
     /* Check for unused buffer */
-    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
-    PRET(ring_unpush(ring, value_size(&value))); /* Failure -> fatal */
-    *error_flags = ERF_DEFAULT;
-    return OK;
+    EXPRETF(ring_unpush(ring, value_size(&value)), EEF_CLOSE_LOG_DIE);
+    return EXOK;
 }
 
-/* Sends 'low on resources' response */
+/* Sends 'low on resources' response (Failure -> log) */
 static void send_low_resources(struct Client *client, int fd, bool max_clients, bool max_memory, bool max_utilization)
 {
     struct Error *error;
     struct ConstValue response = ZERO_INIT;
-    enum ErrorType reason;
+    enum FixedResponse fixed = FR_UNKNOWN;
     bool sent_not_all = false;
-    if (max_clients) reason = ERR_MAX_CLIENTS;
-    else if (max_memory) reason = ERR_MAX_MEMORY;
-    else if (max_utilization) reason = ERR_MAX_UTILIZATION;
-    else reason = ERR_UNKNOWN;
-    request_processor_error(reason, &response.parts[0]);
-    PGOTO(send_value(&response, fd, &sent_not_all)); /* Failure -> log (locally) */
-    AGOTO(!sent_not_all); /* Failure -> log (locally) */
+    if (max_clients) fixed = FR_MAX_CLIENTS;
+    if (max_memory) fixed = FR_MAX_MEMORY;
+    if (max_utilization) fixed = FR_MAX_UTILIZATION;
+    processor_fixed(fixed, &response);
+    PGOTO(send_value(&response, fd, &sent_not_all));
+    AGOTO(!sent_not_all);
+    close(fd);
     return;
 
     failure:
     error_print(error, client);
     error_finalize(error);
+    close(fd);
 }
 
-/* Creates one listening socket */
+/* Creates one listening socket (Failure -> die) */
 static struct Error *create_listening_socket(struct PollBuffer *polls, const struct sockaddr *address, const struct sockaddr *reserve, socklen_t address_sizeof)
 {
     struct Error *error;
@@ -115,18 +102,18 @@ static struct Error *create_listening_socket(struct PollBuffer *polls, const str
     struct pollfd new_poll = { -1, POLLIN, 0 };
 
     new_poll.fd = socket(address->sa_family, SOCK_STREAM, 0);
-    AGOTO0(new_poll.fd >= 0, "socket() failed"); /* Failure -> fatal */
-    AGOTO0(setsockopt(new_poll.fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) >= 0, "setsockopt() failed"); /* Failure -> fatal */
+    AGOTO0(new_poll.fd >= 0, "socket() failed");
+    AGOTO0(setsockopt(new_poll.fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) >= 0, "setsockopt() failed");
     if (address->sa_family == AF_INET6)
     {
-        AGOTO0(setsockopt(new_poll.fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one)) >= 0, "setsockopt() failed"); /* Failure -> fatal */
+        AGOTO0(setsockopt(new_poll.fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one)) >= 0, "setsockopt() failed");
     }
     if (!(bind(new_poll.fd, address, address_sizeof) >= 0))
     {
-        AGOTO0(bind(new_poll.fd, reserve, address_sizeof) >= 0, "bind() failed"); /* Failure -> fatal */
+        AGOTO0(bind(new_poll.fd, reserve, address_sizeof) >= 0, "bind() failed");
     }
-    AGOTO0(listen(new_poll.fd, MAX_CLIENTS_IN_QUEUE) >= 0, "listed() failed"); /* Failure -> fatal */
-    PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
+    AGOTO0(listen(new_poll.fd, MAX_CLIENTS_IN_QUEUE) >= 0, "listed() failed");
+    PGOTO(polls_append(polls, &new_poll, 1));
     return OK;
 
     failure:
@@ -134,6 +121,7 @@ static struct Error *create_listening_socket(struct PollBuffer *polls, const str
     return error;
 }
 
+/* Creates listening sockets (Failure -> die) */
 static struct Error *create_listening_sockets(struct PollBuffer *polls) NODISCARD;
 static struct Error *create_listening_sockets(struct PollBuffer *polls)
 {
@@ -157,7 +145,7 @@ static struct Error *create_listening_sockets(struct PollBuffer *polls)
     return OK;
 }
 
-/* Accepts new connections and puts them into clients */
+/* Accepts new connections and puts them into clients (Failure -> die) */
 static struct Error *process_listening_sockets(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now) NODISCARD;
 static struct Error *process_listening_sockets(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now)
 {
@@ -169,31 +157,30 @@ static struct Error *process_listening_sockets(struct ClientBuffer *clients, str
     struct pollfd new_poll = { -1, 0, 0 };
     unsigned char i;
 
-    new_client.last_input_complete = now;
-    new_client.last_input_not_empty = now;
-    new_client.last_output_not_full = now;
-    new_client.last_output_complete = now;
+    new_client.last_request_complete = now;
+    new_client.last_request_stream_not_empty = now;
+    new_client.last_response_stream_not_full = now;
+    new_client.last_request_complete = now;
     
     for (i = 0; i < ACCEPTING_SOCKETS; i++)
     {
         socklen_t socket_address_size = sizeof(new_client.address);
-        AGOTO0((polls->p[i].revents & (POLLERR | POLLHUP)) == 0, "listening socket failed"); /* Failure -> fatal */
+        AGOTO0((polls->p[i].revents & (POLLERR | POLLHUP)) == 0, "listening socket failed");
         if ((polls->p[i].revents & POLLIN) == 0) continue;
 
         /* Create poll */
         new_poll.fd = accept(polls->p[i].fd, (struct sockaddr*)&new_client.address, &socket_address_size);
-        AGOTO0(new_poll.fd >= 0, "accept() failed"); /* Failure -> fatal */
-        AGOTO0(fcntl(new_poll.fd, F_SETFL, O_NONBLOCK) >= 0, "fcntl() failed"); /* Failure -> fatal */
+        AGOTO0(new_poll.fd >= 0, "accept() failed");
+        AGOTO0(fcntl(new_poll.fd, F_SETFL, O_NONBLOCK) >= 0, "fcntl() failed");
         if (max_clients || max_memory || max_utilization)
         {
             send_low_resources(&new_client, new_poll.fd, max_clients, max_memory, max_utilization);
-            close(new_poll.fd);
             continue;
         }
-        PGOTO(polls_append(polls, &new_poll, 1)); /* Failure -> fatal */
+        PGOTO(polls_append(polls, &new_poll, 1));
 
         /* Create client */
-        PGOTO(clients_append(clients, &new_client, 1)); /* Failure -> fatal */
+        PGOTO(clients_append(clients, &new_client, 1));
     }
     return OK;
 
@@ -203,187 +190,211 @@ static struct Error *process_listening_sockets(struct ClientBuffer *clients, str
     return error;
 }
 
-/* Allocates client's input buffer and reads MIN_AVAILABLE_INPUT to MAX_INPUT_BUFFER_SIZE bytes of data into it */
-static struct Error *client_receive_data(int *error_flags, struct Client *client, int fd, time_t now, bool *received_not_all, bool *received_zero) NODISCARD;
-static struct Error *client_receive_data(int *error_flags, struct Client *client, int fd, time_t now, bool *received_not_all, bool *received_zero)
+/* Allocates client's input buffer and reads MIN_AVAILABLE_REQUEST_STREAM to MAX_REQUEST_STREAM_SIZE bytes of data into it */
+static struct ExError client_receive_data(struct Client *client, int fd, time_t now, bool *received_not_all, bool *received_zero) NODISCARD;
+static struct ExError client_receive_data(struct Client *client, int fd, time_t now, bool *received_not_all, bool *received_zero)
 {
+    const struct ExError EXOK = { OK };
     int signed_available; size_t available;
 
     /* Get how much data is available and allocate buffer */
-    ARET0(ioctl(fd, FIONREAD, &signed_available) >= 0, "ioctl() failed"); /* Failure -> close */
-    ARET0(signed_available >= 0, "ioctl() failed"); /* Failure -> close */
+    EXARET0(ioctl(fd, FIONREAD, &signed_available) >= 0, "ioctl() failed", EEF_CLOSE_LOG);
+    EXARET0(signed_available >= 0, "ioctl() failed", EEF_CLOSE_LOG);
     available = (size_t)signed_available;
-    *error_flags = ERF_MESSAGE | ERR_TOO_FAST | ERF_LOG | ERF_CLOSE;
-    ARET0(available <= MAX_AVAILABLE_INPUT, "ioctl() failed"); /* Failure -> send ERR_TOO_FAST and close */
-    *error_flags = ERF_DEFAULT;
-    if (available < MIN_AVAILABLE_INPUT) available = MIN_AVAILABLE_INPUT;
-    if (available > MAX_INPUT_BUFFER_SIZE - client->input_buffer.size) available = MAX_INPUT_BUFFER_SIZE - client->input_buffer.size;
+    EXARET0(available <= MAX_AVAILABLE_REQUEST_STREAM, "ioctl() failed", EEF_SEND_CLOSE_LOG(FR_MAX_AVAILABLE_REQUEST_STREAM));
+    if (available < MIN_AVAILABLE_REQUEST_STREAM) available = MIN_AVAILABLE_REQUEST_STREAM;
+    if (available > MAX_REQUEST_STREAM_SIZE - client->request_stream.size) available = MAX_REQUEST_STREAM_SIZE - client->request_stream.size;
 
     /* Read data into buffer */
-    PRET(receive_value(error_flags, &client->input_buffer, fd, available, received_not_all, received_zero));
-    if (client->input_buffer.size > 0) client->last_input_not_empty = now;
-    return OK;
+    EXPRET(receive_value(&client->request_stream, fd, available, received_not_all, received_zero));
+    if (client->request_stream.size > 0) client->last_request_stream_not_empty = now;
+    return EXOK;
 }
 
 /* Flushes short output buffer into long output buffer */
-static struct Error *client_push_to_long_output_buffer(int *error_flags, struct Client *client, const struct ConstValuePart *data) NODISCARD;
-static struct Error *client_push_to_long_output_buffer(int *error_flags, struct Client *client, const struct ConstValuePart *data)
+static struct ExError client_push_to_long_response_stream(struct Client *client, const struct ConstValue *data) NODISCARD;
+static struct ExError client_push_to_long_response_stream(struct Client *client, const struct ConstValue *data)
 {
-    PRET(ring_reserve(&client->output_buffer, client->output_buffer.size + data->size)); /* Failure -> close */
-    PRET(ring_reserve(&client->output_size_buffer, client->output_size_buffer.size + sizeof(data->size))); /* Failure -> close */
-    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
-    PRET(ring_push_write(&client->output_buffer, data->size, data->p)); /* Failure -> fatal */
-    PRET(ring_push_write(&client->output_size_buffer, sizeof(data->size), (const char*)&data->size)); /* Failure -> fatal */
-    *error_flags = ERF_DEFAULT;
-    return OK;
+    /* TODO: bullshit */
+    const struct ExError EXOK = { OK };
+    EXPRETF(ring_reserve(&client->response_stream, client->response_stream.size + value_const_size(data)), EEF_CLOSE_LOG);
+    EXPRETF(ring_reserve(&client->response_queue, client->response_queue.size + sizeof(struct Response)), EEF_CLOSE_LOG);
+    /*
+    EXPRETF(ring_push_write(&client->response_stream, data->size, data->p), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_push_write(&client->response_queue, sizeof(struct Response), (const char*)&data->size), EEF_CLOSE_LOG_DIE);
+    */
+    return EXOK;
 }
 
 /* Parses the data in the input buffer, and if the request is complete, processes it and pushes into output buffer */
-static struct Error *client_process_data(int *error_flags, struct Client *client, time_t now) NODISCARD;
-static struct Error *client_process_data(int *error_flags, struct Client *client, time_t now)
+static struct ExError client_process_data(struct Client *client, time_t now) NODISCARD;
+static struct ExError client_process_data(struct Client *client, time_t now)
 {
-    struct ConstValuePart response;
+    const struct ExError EXOK = { OK };
+    struct ConstValue response;
 
     /* Parse request, quit if the request is incomplete */
-    *error_flags = ERF_MESSAGE | ERR_PARSING_FAILED | ERF_LOG | ERF_CLOSE;
-    PRET(request_parser_parse(&client->parser, &client->input_buffer)); /* Failure -> send ERR_TOO_LARGE/ERR_PARSING_FAILED and close */
-    *error_flags = ERF_DEFAULT;
-    if (client->parser.state != RPS_END) return OK;
-    client->last_input_complete = now;
+    EXPRET(parser_parse(&client->parser, &client->request, &client->request_stream));
+    if (client->parser.state != RPS_END) return EXOK;
+    client->last_request_complete = now;
 
     /* Flush short output buffer to long output buffer because we are about to get another portion of data to send */
-    if (client->short_output_buffer.size > 0)
+    if (client == g_short_response_stream_owner)
     {
-        const struct ConstValuePart zero = ZERO_INIT;
-        PRET(client_push_to_long_output_buffer(error_flags, client, &client->short_output_buffer));
-        client->short_output_buffer = zero;
-        request_processor_free();
+        const struct ConstValue zero = ZERO_INIT;
+        EXPRET(client_push_to_long_response_stream(client, &g_short_response_stream));
+        g_short_response_stream = zero;
+        g_short_response_stream_owner = NULL;
+        processor_free();
     }
 
     /* Generate response */
-    *error_flags = ERF_MESSAGE | ERR_UNKNOWN | ERF_LOG | ERF_CLOSE;
-    PRET(request_processor_process(&client->input_buffer, &client->parser.request, &response)); /* Failure -> send ERR_UNKNOWN and close */
-    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
-    PRET(ring_pop(&client->input_buffer, client->parser.offset)); /* Failure -> fatal */
-    *error_flags = ERF_DEFAULT;
+    EXPRET(processor_process(&client->request, &client->request_stream, &client->response, &client->response_queue, &response));
+    EXPRETF(ring_pop(&client->request_stream, client->request.stream_size), EEF_CLOSE_LOG_DIE);
 
     /* Save the response to either short-term or long-term buffer */
-    if (client->output_buffer.size > 0)
+    if (client->response_stream.size > 0)
     {
-        PRET(client_push_to_long_output_buffer(error_flags, client, &response));
-        request_processor_free();
+        EXPRET(client_push_to_long_response_stream(client, &response));
+        processor_free();
     }
     else
     {
-        client->short_output_buffer = response;
+        g_short_response_stream = response;
+        g_short_response_stream_owner = client;
     }
 
     /* Reset parser for future data */
-    if (client->parser.request.keep_alive) { const struct RequestParser zero = ZERO_INIT; client->parser = zero; }
+    if (client->response.keep_alive) { const struct Parser zero = ZERO_INIT; client->parser = zero; } /* TODO: bullshit? */
+    return EXOK;
+}
+
+/* Prints and pops response metadata from response_queue (Failure -> close, log, and die) */
+static struct Error *client_pop_response(struct Client *client)
+{
+    struct Value method, resource;
+    PRET(ring_get(&client->response_queue, &client->response.method, false, &method));
+    PRET(ring_get(&client->response_queue, &client->response.resource, false, &resource));
+    output_open(false);
+    output_print(false, "Success %.*s%.*s %.*s%.*s\n",
+        (int)method.parts[0].size, method.parts[0].p, (int)method.parts[1].size, method.parts[1].p,
+        (int)resource.parts[0].size, resource.parts[0].p, (int)resource.parts[1].size, resource.parts[1].p);
+    output_print_client(false, client);
+    output_print_time(true);
+    output_print(true, COMMON_N);
+    output_close(false);
+    PRET(ring_pop(&client->response_queue, client->response.size));
+    ARET(client->response_queue.size == 0);
     return OK;
 }
 
-/* Sends short-term output buffer */
-static struct Error *client_send_short_output_buffer(struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
-static struct Error *client_send_short_output_buffer(struct Client *client, int fd, time_t now, bool *sent_not_all)
+/* Sends short-term output buffer (Failure -> close and log) */
+static struct ExError client_send_short_response_stream(struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
+static struct ExError client_send_short_response_stream(struct Client *client, int fd, time_t now, bool *sent_not_all)
 {
-    struct ConstValue value = ZERO_INIT;
-    value.parts[0] = client->short_output_buffer;
-    PRET(send_value(&value, fd, sent_not_all)); /* Failure -> close */
-    client->short_output_buffer = value.parts[0];
-    if (value.parts[0].size == 0)
+    const struct ExError EXOK = { OK };
+
+    /* Send chunk of data */
+    EXPRETF(send_value(&g_short_response_stream, fd, sent_not_all), EEF_CLOSE_LOG);
+
+    /* See if it was the chunk was last */
+    if (value_const_size(&g_short_response_stream) == 0)
     {
-        client->last_output_complete = now;
-        request_processor_free();
+        g_short_response_stream_owner = NULL;
+        processor_free();
+        EXPRETF(client_pop_response(client), EEF_CLOSE_LOG_DIE);
+        client->last_response_complete = now;
     }
-    return OK;
+    return EXOK;
 }
 
 /* Retrieves long-term output buffer */
-static struct Error *client_send_long_output_buffer(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
-static struct Error *client_send_long_output_buffer(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all)
+static struct ExError client_send_long_output_buffer(struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
+static struct ExError client_send_long_output_buffer(struct Client *client, int fd, time_t now, bool *sent_not_all)
 {
+    const struct ExError EXOK = { OK };
     struct ConstValue value; struct Value nonconst_value;
-    size_t old_value_size, new_value_size, sent_size;
+    size_t old_value_size, new_value_size, sent_stream_size;
     
-    /* Send */
-    ring_get_all(&client->output_buffer, &nonconst_value);
+    /* Send chunk of data */
+    ring_get_all(&client->response_stream, &nonconst_value);
     value_to_const_value(&value, &nonconst_value);
     old_value_size = value_const_size(&value);
-    PRET(send_value(&value, fd, sent_not_all)); /* Failure -> close */
+    EXPRETF(send_value(&value, fd, sent_not_all), EEF_CLOSE_LOG);
     new_value_size = value_const_size(&value);
-    sent_size = old_value_size - new_value_size;
-    *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
-    PRET(ring_pop(&client->output_buffer, sent_size)); /* Failure -> fatal */
-    *error_flags = ERF_DEFAULT;
+    sent_stream_size = old_value_size - new_value_size;
+    EXPRETF(ring_pop(&client->request_stream, sent_stream_size), EEF_CLOSE_LOG_DIE);
 
-    /* Detect sending of a response */
-    while (sent_size > 0)
+    /* Analyze what was in that chunk of data */
+    while (sent_stream_size > 0)
     {
-        size_t response_size;
-        const struct ValueLocation location = { 0, sizeof(response_size) };
-        *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
-        PRET(ring_get(&client->output_size_buffer, &location, false, &nonconst_value)); /* Failure -> fatal */
-        *error_flags = ERF_DEFAULT;
-        value_read(&nonconst_value, (char*)&response_size);
-        if (sent_size >= response_size)
+        if (sent_stream_size >= client->response.stream_size)
         {
-            *error_flags = ERF_LOG | ERF_CLOSE | ERF_FATAL;
-            PRET(ring_pop(&client->output_size_buffer, sizeof(response_size))); /* Failure -> fatal */
-            *error_flags = ERF_DEFAULT;
-            client->last_output_complete = now;
-            sent_size -= response_size;
+            /* Sent */
+            EXPRETF(client_pop_response(client), EEF_CLOSE_LOG_DIE);
+            client->last_response_complete = now;
+            sent_stream_size -= client->response.stream_size;
+            EXARET(client->response_queue.size == 0 || client->response_queue.size >= sizeof(struct Response), EEF_CLOSE_LOG_DIE);
+            if (client->response_queue.size > 0)
+            {
+                EXPRETF(ring_pop_read(&client->response_queue, sizeof(struct Response), (char*)&client->response), EEF_CLOSE_LOG_DIE);
+            }
         }
         else
         {
-            response_size -= sent_size;
-            value_write(&nonconst_value, (const char*)&response_size);
-            sent_size = 0;
+            /* Not sent */
+            client->response.stream_size -= sent_stream_size;
+            sent_stream_size = 0;
         }
     }
-    return OK;
+    return EXOK;
 }
 
 /* Sends the client's output buffer */
-static struct Error *client_send_data(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
-static struct Error *client_send_data(int *error_flags, struct Client *client, int fd, time_t now, bool *sent_not_all)
+static struct ExError client_send_data(struct Client *client, int fd, time_t now, bool *sent_not_all) NODISCARD;
+static struct ExError client_send_data(struct Client *client, int fd, time_t now, bool *sent_not_all)
 {
-    if (client->short_output_buffer.size > 0)
+    const struct ExError EXOK = { OK };
+    size_t short_response_stream_size = 0;
+    if (client == g_short_response_stream_owner)
     {
-        PRET(client_send_short_output_buffer(client, fd, now, sent_not_all));
+        EXPRET(client_send_short_response_stream(client, fd, now, sent_not_all));
+        short_response_stream_size = value_const_size(&g_short_response_stream);
     }
-    if (!*sent_not_all && client->output_buffer.size > 0)
+    if (!*sent_not_all && client->response_stream.size > 0)
     {
-        PRET(client_send_long_output_buffer(error_flags, client, fd, now, sent_not_all));
+        EXPRET(client_send_long_output_buffer(client, fd, now, sent_not_all));
     }
-    if (client->short_output_buffer.size + client->output_buffer.size < MAX_OUTPUT_BUFFER_SIZE)
+    if (short_response_stream_size + client->response_stream.size < MAX_RESPONSE_STREAM_SIZE)
     {
-        client->last_output_not_full = now;
+        client->last_response_stream_not_full = now;
     }
-    return OK;
+    return EXOK;
 }
 
-static size_t client_process_output_buffer_size(const struct Client *client)
+static size_t client_process_response_stream_size(const struct Client *client)
 {
-    return client->short_output_buffer.size + client->output_buffer.size;
+    size_t size = client->response_stream.size;
+    if (client == g_short_response_stream_owner) size += value_const_size(&g_short_response_stream);
+    return size;
 }
 
 static bool client_process_makes_sense_to_receive(struct Client *client)
 {
     return client->parser.state != RPS_END
-        && client_process_output_buffer_size(client) < MAX_OUTPUT_BUFFER_SIZE;
+        && client_process_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
 
 static bool client_process_makes_sense_to_parse(struct Client *client)
 {
     return client->parser.state != RPS_END
-        && client->input_buffer.size > client->parser.offset
-        && client_process_output_buffer_size(client) < MAX_OUTPUT_BUFFER_SIZE;
+        && client->request_stream.size > client->request.stream_size
+        && client_process_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
 
 static bool client_process_makes_sense_to_send(struct Client *client)
 {
-    return client_process_output_buffer_size(client) > 0;
+    return client_process_response_stream_size(client) > 0;
 }
 
 static struct Error *client_process_check_one(time_t timeout, time_t now, int *remaining) NODISCARD;
@@ -403,47 +414,45 @@ static struct Error *client_process_check_one(time_t timeout, time_t now, int *r
     return OK;
 }
 
-static struct Error *client_process_check(int *error_flags, struct Client *client, time_t now, int *remaining) NODISCARD;
-static struct Error *client_process_check(int *error_flags, struct Client *client, time_t now, int *remaining)
+static struct ExError client_process_check(struct Client *client, time_t now, int *remaining) NODISCARD;
+static struct ExError client_process_check(struct Client *client, time_t now, int *remaining)
 {
-    *error_flags = ERF_MESSAGE | ERR_INCOMPLETE_INPUT | ERF_LOG | ERF_CLOSE;
-    if (client->input_buffer.size > 0)
+    const struct ExError EXOK = { OK };
+    if (client->response_stream.size > 0)
     {
-        /* Failure -> send ERR_INCOMPLETE_INPUT and close */
-        PRET(client_process_check_one(client->last_input_complete + MAX_INCOMPLETE_INPUT_TIME, now, remaining));
+        EXPRETF(client_process_check_one(client->last_request_complete + MAX_INCOMPLETE_REQUEST_TIME, now, remaining),
+            EEF_SEND_CLOSE_LOG(FR_MAX_INCOMPLETE_REQUEST_TIME));
     }
-    *error_flags = ERF_DEFAULT;
-    if (client->input_buffer.size == 0)
+    if (client->request_stream.size == 0)
     {
-        /* Failure -> close */
-        PRET(client_process_check_one(client->last_input_complete + MAX_NO_INPUT_TIME, now, remaining));
+        EXPRETF(client_process_check_one(client->last_request_stream_not_empty + MAX_EMPTY_REQUEST_STREAM_TIME, now, remaining),
+            EEF_CLOSE_LOG);
     }
-    if (client_process_output_buffer_size(client) >= MAX_OUTPUT_BUFFER_SIZE)
+    if (client_process_response_stream_size(client) >= MAX_RESPONSE_STREAM_SIZE)
     {
-        /* Failure -> close */
-        PRET(client_process_check_one(client->last_input_complete + MAX_FULL_OUTPUT_TIME, now, remaining));
+        EXPRETF(client_process_check_one(client->last_response_stream_not_full + MAX_FULL_RESPONSE_STREAM_TIME, now, remaining),
+            EEF_CLOSE_LOG);
     }
-    if (client_process_output_buffer_size(client) > 0)
+    if (client_process_response_stream_size(client) > 0)
     {
-        /* Failure -> close */
-        PRET(client_process_check_one(client->last_input_complete + MAX_INCOMPLETE_OUTPUT_TIME, now, remaining));
+        EXPRETF(client_process_check_one(client->last_response_complete + MAX_INCOMPLETE_RESPONSE_TIME, now, remaining),
+            EEF_CLOSE_LOG);
     }
-    return OK;
+    return EXOK;
 }
 
-/* Processes client, call when revents has something to it */
+/* Processes client, call when revents has something to it (Failure -> die) */
 static struct Error *client_process(struct Client *client, struct pollfd *poll, int *remaining, time_t now) NODISCARD;
 static struct Error *client_process(struct Client *client, struct pollfd *poll, int *remaining, time_t now)
 {
-    struct Error *error;
-    int error_flags = ERF_DEFAULT;
+    struct ExError exerror;
     bool receive_may_succeed, send_may_succeed;
 
     /* Check if connection failed */
-    AGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed"); /* Failure -> close */
+    EXAGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed", EEF_CLOSE_LOG);
 
     /* Check if connection should be terminated */
-    PGOTO(client_process_check(&error_flags, client, now, NULL));
+    EXPGOTO(client_process_check(client, now, NULL));
     
     /* Do everything you can */
     receive_may_succeed = !(((poll->events & POLLIN) != 0) && ((poll->revents & POLLIN) == 0));
@@ -461,15 +470,14 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
         if (receive_may_succeed && client_process_makes_sense_to_receive(client))
         {
             bool received_not_all = false, received_zero = false;
-            PGOTO(client_receive_data(&error_flags, client, poll->fd, now, &received_not_all, &received_zero));
+            EXPGOTO(client_receive_data(client, poll->fd, now, &received_not_all, &received_zero));
             if (received_not_all) receive_may_succeed = false;
             if (received_zero)
             {
                 /* Termination for Connection: keep-alive */
-                error_flags = ERF_LOG | ERF_CLOSE;
-                AGOTO(client->input_buffer.size == 0);
-                AGOTO(client->parser.state == (enum RequestParserState)0);
-                AGOTO(client_process_output_buffer_size(client) == 0);
+                EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
+                EXAGOTO(client->parser.state == (enum ParserState)0, EEF_CLOSE_LOG);
+                EXAGOTO(client_process_response_stream_size(client) == 0, EEF_CLOSE_LOG);
                 client_finalize(client);
                 poll_finalize(poll);
                 return OK;
@@ -485,7 +493,7 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
         */
         if (client_process_makes_sense_to_parse(client))
         {
-            PGOTO(client_process_data(&error_flags, client, now));
+            EXPGOTO(client_process_data(client, now));
             done = false;
         }
 
@@ -497,13 +505,12 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
         if (send_may_succeed && client_process_makes_sense_to_send(client))
         {
             bool sent_not_all = false;
-            PGOTO(client_send_data(&error_flags, client, poll->fd, now, &sent_not_all));
+            EXPGOTO(client_send_data(client, poll->fd, now, &sent_not_all));
             if (sent_not_all) send_may_succeed = false;
-            if (client->parser.state == RPS_END && client_process_output_buffer_size(client) == 0)
+            if (client->parser.state == RPS_END && client_process_response_stream_size(client) == 0)
             {
                 /* Termination for Connection: close */
-                error_flags = ERF_LOG | ERF_CLOSE;
-                AGOTO(client->input_buffer.size == 0);
+                EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
                 client_finalize(client);
                 poll_finalize(poll);
                 return OK;
@@ -517,36 +524,40 @@ static struct Error *client_process(struct Client *client, struct pollfd *poll, 
             poll->events = POLLHUP | POLLERR;
             if (client_process_makes_sense_to_receive(client)) poll->events |= POLLIN;
             if (client_process_makes_sense_to_send(client)) poll->events |= POLLOUT;
-            PIGNORE(client_process_check(&error_flags, client, now, remaining));
+            EXPIGNORE(client_process_check(client, now, remaining));
             return OK;
         }
     }
 
     failure:
-    if ((error_flags & ERF_MESSAGE) != 0)
+    if ((exerror.flags & EEF_SEND) != 0)
     {
-        struct ConstValuePart response;
-        request_processor_error(error_flags & ERROR_TYPE_MASK, &response);
-        (void)send(poll->fd, response.p, response.size, 0);
+        struct ConstValue response;
+        unsigned char i;
+        processor_fixed((enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
+        for (i = 0; i < VALUE_PARTS; i++)
+        {
+            if (response.parts[i].size > 0) (void)send(poll->fd, response.parts[i].p, response.parts[i].size, 0);
+        }
     }
-    if ((error_flags & ERF_CLOSE) != 0)
+    if ((exerror.flags & EEF_CLOSE) != 0)
     {
         client_finalize(client);
         poll_finalize(poll);
     }
-    if ((error_flags & ERF_LOG) != 0)
+    if ((exerror.flags & EEF_LOG) != 0)
     {
-        error_print(error, client);
+        error_print(exerror.error, client);
     }
-    if ((error_flags & ERF_FATAL) != 0)
+    if ((exerror.flags & EEF_DIE) != 0)
     {
-        return error;
+        return exerror.error;
     }
-    error_finalize(error);
+    error_finalize(exerror.error);
     return OK;
 }
 
-/* Processes all clients */
+/* Processes all clients (Failure -> die) */
 static struct Error *clients_process(struct ClientBuffer *clients, struct PollBuffer *polls, clock_t *utilization_clock, double *utilization, int *remaining) NODISCARD;
 static struct Error *clients_process(struct ClientBuffer *clients, struct PollBuffer *polls, clock_t *utilization_clock, double *utilization, int *remaining)
 {
@@ -559,7 +570,7 @@ static struct Error *clients_process(struct ClientBuffer *clients, struct PollBu
     /* Wait for events */
     poll_begin_clock = *utilization_clock; /* Do not repeat clock() call */
     event_number = poll(polls->p, polls->size, (*remaining == INT_MAX) ? -1 : *remaining * 1000);
-    ARET0(event_number >= 0, "poll() failed"); /* Failure -> fatal */
+    ARET0(event_number >= 0, "poll() failed");
     poll_end_clock = clock();
     now = time(NULL);
 
@@ -595,6 +606,7 @@ struct Error *server_main(void)
 
     /* Initialize */
     tables_module_initialize();
+    PGOTO(processor_module_initialize());
     PGOTO(create_listening_sockets(&polls));
     output_open(false);
     output_print(false, "Twinkleshine started\n");
@@ -613,7 +625,7 @@ struct Error *server_main(void)
     failure:
     clients_finalize(&clients);
     polls_finalize(&polls);
-    request_processor_finalize();
+    processor_module_finalize();
 
     return error;
 }

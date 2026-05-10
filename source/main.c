@@ -1,14 +1,23 @@
-#include "../include/server.h"
+#include "../commonlib/include/error.h"
 #include "../include/output.h"
-#include "../commonlib/include/path.h"
+#include "../include/server.h"
 
-static int common_main(int argc, cchar_t **argv)
+#include <stddef.h>
+#include <string.h>
+
+static int common_main(int argc, char **argv)
 {
     int code = 0;
     struct Error *error;
+
+    if (argc > 0 && argv[0] != NULL)
+    {
+        g_application = strrchr(argv[0], '/');
+        if (g_application != NULL) g_application++;
+        else g_application = argv[0];
+    }
     
     output_module_initialize();
-    PGOTO(path_module_initialize(argc, argv));
     PGOTO(server_main());
     error = OK;
     failure:
@@ -18,7 +27,6 @@ static int common_main(int argc, cchar_t **argv)
         code = error_get_exit_code(error);
         error_finalize(error);
     }
-    path_module_finalize();
     output_module_finalize();
 
     return code;

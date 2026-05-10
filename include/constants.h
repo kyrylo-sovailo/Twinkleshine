@@ -14,55 +14,55 @@
 /*
 Throttling and security:
 
-- 1. [X] Max clients in queue, needed by the OS 
-- 2. [X] Start sending 500 and closing incoming connections immediately when:
-    - 1. [X] Maximum number of clients if reached
-    - 2. [X] Maximum memory usage is reached
-    - 3. [X] Maximum processor utilization is reached
+- 1. Max clients in queue, needed by the OS 
+- 2. Start sending 500 and closing incoming connections immediately when:
+    - 1. Maximum number of clients if reached
+    - 2. Maximum memory usage is reached
+    - 3. Maximum processor utilization is reached
 - 3. Stop accepting data from a client when:
-    - 1. [X] Maximum size of input buffer is reached
-    - 2. [X] Certain size of output buffer is reached
+    - 1. Maximum size of input buffer is reached
+    - 2. Certain size of output buffer is reached
 - 4. Send client 500 and close connection when:
-    - 1. [X] Error occurred
-    - 2. [X] Client sent more than certain amount of data at once
-    - 3. [X] Client promised to send a request larger than certain amount (TODO: differentiate between too large header and too large body)
-    - 4. [X] Input buffer is incomplete for certain time
+    - 1. Error occurred
+    - 2. Client sent more than certain amount of data at once
+    - 3. Client promised to send a request larger than certain amount
+    - 4. Input buffer is incomplete for certain time
 - 5. Close connection without sending 500 when:
-    - 1. [X] 4.1 but output buffer is not empty
-    - 2. [X] 4.2 but output buffer is not empty
-    - 3. [X] 4.3 but output buffer is not empty
-    - 4. [X] 4.4 but output buffer is not empty
-    - 5. [X] Input buffer is empty for a certain amount of time
-    - 6. [X] Output buffer is full for certain time
-    - 7. [X] Output buffer is incomplete for a certain time
+    - 1. 4.1 but output buffer is not empty
+    - 2. 4.2 but output buffer is not empty
+    - 3. 4.3 but output buffer is not empty
+    - 4. 4.4 but output buffer is not empty
+    - 5. Input buffer is empty for a certain amount of time
+    - 6. Output buffer is full for certain time
+    - 7. Output buffer is incomplete for a certain time
 */
 
 /* 1.x */
-#define MAX_CLIENTS_IN_QUEUE        16              /* 1.1 */
+#define MAX_CLIENTS_IN_QUEUE            16              /* 1.1 */
 
 /* 2.x */
-#define MAX_CLIENTS                 256             /* 2.1 */
-#define MAX_MEMORY_USAGE            (1 * GIGABYTE)  /* 2.2 */
-#define MAX_PROCESSOR_UTILIZATION   0.95f           /* 2.3 */
-#define PROCESSOR_UTILIZATION_UPD   0.05f
+#define MAX_CLIENTS                     256             /* 2.1 */
+#define MAX_MEMORY_USAGE                (1 * GIGABYTE)  /* 2.2 */
+#define MAX_PROCESSOR_UTILIZATION       0.95            /* 2.3 */
+#define PROCESSOR_UTILIZATION_UPD       0.05
 
 /* 3.x */
-#define MAX_INPUT_BUFFER_SIZE       (1 * MEGABYTE)  /* 3.1 */
-#define MAX_OUTPUT_BUFFER_SIZE      (1 * MEGABYTE)  /* 3.2 */
+#define MAX_REQUEST_STREAM_SIZE         (1 * MEGABYTE)  /* 3.1 */
+#define MAX_RESPONSE_STREAM_SIZE        (1 * MEGABYTE)  /* 3.2 */
 
 /* 4.x */
-#define MAX_AVAILABLE_INPUT         (2 * MEGABYTE)  /* 4.2 */
-#define MAX_REQUEST_SIZE            (1 * MEGABYTE)  /* 4.3 */
-#define MAX_INCOMPLETE_INPUT_TIME   (1 * MINUTE)    /* 4.4 */
+#define MAX_AVAILABLE_REQUEST_STREAM    (2 * MEGABYTE)  /* 4.2 */
+#define MAX_REQUEST_SIZE                (1 * MEGABYTE)  /* 4.3 */
+#define MAX_INCOMPLETE_REQUEST_TIME     (1 * MINUTE)    /* 4.4 */
 
 /* 5.x */
-#define MAX_NO_INPUT_TIME           (10 * MINUTE)   /* 5.5 */
-#define MAX_FULL_OUTPUT_TIME        (1 * MINUTE)    /* 5.6 */
-#define MAX_INCOMPLETE_OUTPUT_TIME  (1 * MINUTE)    /* 5.7 */
+#define MAX_EMPTY_REQUEST_STREAM_TIME   (10 * MINUTE)   /* 5.5 */
+#define MAX_FULL_RESPONSE_STREAM_TIME   (1 * MINUTE)    /* 5.6 */
+#define MAX_INCOMPLETE_RESPONSE_TIME    (1 * MINUTE)    /* 5.7 */
 
-#if MAX_REQUEST_SIZE > MAX_INPUT_BUFFER_SIZE
+#if MAX_REQUEST_SIZE > MAX_REQUEST_STREAM_SIZE
     /*
-    MAX_INPUT_BUFFER_SIZE is the size of the buffer that gets allocated
+    MAX_REQUEST_STREAM_SIZE is the size of the buffer that gets allocated
     MAX_REQUEST_SIZE is the size maximum size of request
     Does it make sense to allocate more buffer then the request size?
     Not really, considering that there's probably another buffer behind read()
@@ -71,10 +71,10 @@ Throttling and security:
     #error "Request can be larger than input buffer"
 #endif
 
-#define MIN_AVAILABLE_INPUT 4096
-#if MIN_AVAILABLE_INPUT > MAX_AVAILABLE_INPUT
+#define MIN_AVAILABLE_REQUEST_STREAM 4096
+#if MIN_AVAILABLE_REQUEST_STREAM > MAX_AVAILABLE_REQUEST_STREAM
     /*
-    MIN_AVAILABLE_INPUT is how bytes must be read regardless what ioctl says
+    MIN_AVAILABLE_REQUEST_STREAM is how bytes must be read regardless what ioctl says
     Serves to circumvent unreliable ioctl and to detect normal terminations
     */
     #error "Minimal available input is more than maximal available input"
