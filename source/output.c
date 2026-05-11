@@ -328,7 +328,16 @@ void output_print_client(bool error_output, const struct Client *client)
     if (client->address.ss_family == AF_INET6)
     {
         const struct sockaddr_in6 *cast = (const struct sockaddr_in6*)&client->address;
-        inet_ntop(AF_INET6, &cast->sin6_addr, address, sizeof(address));
+        if (IN6_IS_ADDR_V4MAPPED(&cast->sin6_addr))
+        {
+            struct in_addr recast;
+            memcpy(&recast.s_addr, ((char*)&cast->sin6_addr) + sizeof(cast->sin6_addr) - sizeof(recast.s_addr), sizeof(recast.s_addr));
+            inet_ntop(AF_INET, &recast.s_addr, address, sizeof(address));
+        }
+        else
+        {
+            inet_ntop(AF_INET6, &cast->sin6_addr, address, sizeof(address));
+        }
         port = ntohs(cast->sin6_port);
     }
     else

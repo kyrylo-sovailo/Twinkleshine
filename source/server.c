@@ -96,30 +96,40 @@ static void send_low_resources(struct Client *client, int fd, bool max_clients, 
     close(fd);
 }
 
-/* Creates one listening socket (Failure -> die) */
-static struct Error *create_listening_socket(struct PollBuffer *polls, const struct sockaddr *address, const struct sockaddr *reserve, socklen_t address_sizeof)
+static struct Error *create_listening_sockets_one(struct PollBuffer *polls, struct sockaddr_in *ipv4, struct sockaddr_in6 *ipv6, bool ipv6_only) NODISCARD;
+static struct Error *create_listening_sockets_one(struct PollBuffer *polls, struct sockaddr_in *ipv4, struct sockaddr_in6 *ipv6, bool ipv6_only)
 {
-    struct Error *error;
-    const int one = 1;
-    struct pollfd new_poll = { -1, POLLIN, 0 };
+    struct Error *error = OK;
+    const int no_int = 0, yes_int = 1;
+    struct pollfd ipv4_poll = { -1, POLLIN, 0 }, ipv6_poll = { -1, POLLIN, 0 };
+    polls->size = 0;
 
-    new_poll.fd = socket(address->sa_family, SOCK_STREAM, 0);
-    AGOTO0(new_poll.fd >= 0, "socket() failed");
-    AGOTO0(setsockopt(new_poll.fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) >= 0, "setsockopt() failed");
-    if (address->sa_family == AF_INET6)
+    if (ipv4 != NULL)
     {
-        AGOTO0(setsockopt(new_poll.fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(one)) >= 0, "setsockopt() failed");
+        ipv4_poll.fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (ipv4_poll.fd < 0) goto failure;
+        if (setsockopt(ipv4_poll.fd, SOL_SOCKET, SO_REUSEADDR, &yes_int, sizeof(yes_int)) < 0) goto failure;
+        if (bind(ipv4_poll.fd, (struct sockaddr*)ipv4, sizeof(*ipv4)) < 0) goto failure;
+        if (listen(ipv4_poll.fd, MAX_CLIENTS_IN_QUEUE) < 0) goto failure;
     }
-    if (!(bind(new_poll.fd, address, address_sizeof) >= 0))
+
+    if (ipv6 != NULL)
     {
-        AGOTO0(bind(new_poll.fd, reserve, address_sizeof) >= 0, "bind() failed");
+        ipv6_poll.fd = socket(AF_INET6, SOCK_STREAM, 0);
+        if (ipv6_poll.fd < 0) goto failure;
+        if (setsockopt(ipv6_poll.fd, SOL_SOCKET, SO_REUSEADDR, &yes_int, sizeof(yes_int)) < 0) goto failure;
+        if (setsockopt(ipv6_poll.fd, IPPROTO_IPV6, IPV6_V6ONLY, ipv6_only ? &yes_int : &no_int, sizeof(yes_int)) < 0) goto failure;
+        if (bind(ipv6_poll.fd, (struct sockaddr*)ipv6, sizeof(*ipv6)) < 0) goto failure;
+        if (listen(ipv6_poll.fd, MAX_CLIENTS_IN_QUEUE) < 0) goto failure;
     }
-    AGOTO0(listen(new_poll.fd, MAX_CLIENTS_IN_QUEUE) >= 0, "listed() failed");
-    PGOTO(polls_append(polls, &new_poll, 1));
+
+    if (ipv4 != NULL) { PGOTO(polls_append(polls, &ipv4_poll, 1)); }
+    if (ipv6 != NULL) { PGOTO(polls_append(polls, &ipv6_poll, 1)); }
     return OK;
 
     failure:
-    poll_finalize(&new_poll);
+    if (ipv4_poll.fd >= 0) close(ipv4_poll.fd);
+    if (ipv6_poll.fd >= 0) close(ipv6_poll.fd);
     return error;
 }
 
@@ -127,25 +137,47 @@ static struct Error *create_listening_socket(struct PollBuffer *polls, const str
 static struct Error *create_listening_sockets(struct PollBuffer *polls) NODISCARD;
 static struct Error *create_listening_sockets(struct PollBuffer *polls)
 {
-    struct sockaddr_in ipv4 = ZERO_INIT, reserved_ipv4 = ZERO_INIT;
-    struct sockaddr_in6 ipv6 = ZERO_INIT, reserved_ipv6 = ZERO_INIT;
-
-    ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
-
+    struct sockaddr_in ipv4 = ZERO_INIT;
+    struct sockaddr_in6 ipv6 = ZERO_INIT;
+    unsigned char i;
+    const char *mode;
+    
     ipv4.sin_family = AF_INET;
     ipv4.sin_addr.s_addr = INADDR_ANY;
-    ipv4.sin_port = htons(80);
-    reserved_ipv4 = ipv4;
-    reserved_ipv4.sin_port = htons(8080);
-    PRET(create_listening_socket(polls, (struct sockaddr*)&ipv4, (struct sockaddr*)&reserved_ipv4, sizeof(ipv4)));
-    
     ipv6.sin6_family = AF_INET6;
     ipv6.sin6_addr = in6addr_any;
-    ipv6.sin6_port = ipv4.sin_port;
-    reserved_ipv6 = ipv6;
-    reserved_ipv6.sin6_port = reserved_ipv4.sin_port;
-    PRET(create_listening_socket(polls, (struct sockaddr*)&ipv6, (struct sockaddr*)&reserved_ipv6, sizeof(ipv6)));
-    
+
+    /* Trying in that order: IPv6+IPv4 > IPv6* > IPv6 > IPv4 > try again with port 8080 */
+    ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
+    for (i = 0; i < 2; i++)
+    {
+        ipv4.sin_port = ipv6.sin6_port = htons((i == 0) ? 80 : 8080);
+        mode = "IPv6+IPv4";
+        PRET(create_listening_sockets_one(polls, &ipv4, &ipv6, true));
+        if (polls->size == 2) break;
+        mode = "IPv6*";
+        PRET(create_listening_sockets_one(polls, NULL, &ipv6, false));
+        if (polls->size == 1) break;
+        mode = "IPv6";
+        PRET(create_listening_sockets_one(polls, NULL, &ipv6, true));
+        if (polls->size == 1) break;
+        mode = "IPv4";
+        PRET(create_listening_sockets_one(polls, &ipv4, NULL, false));
+        if (polls->size == 1) break;
+    }
+    ARET0(i < 2, "All modes failed");
+
+    for (;polls->size < ACCEPTING_SOCKETS;)
+    {
+        const struct pollfd zero = { -1, POLLIN, 0 };
+        PRET(polls_append(polls, &zero, 1));
+    }
+
+    output_open(false);
+    output_print(false, "Twinkleshine started in %s:%d mode\n", mode, (int)ntohs(ipv4.sin_port));
+    output_print_time(false);
+    output_print(false, "\n");
+    output_close(false);
     return OK;
 }
 
@@ -618,11 +650,6 @@ struct Error *server_main(void)
     tables_module_initialize();
     PGOTO(processor_module_initialize());
     PGOTO(create_listening_sockets(&polls));
-    output_open(false);
-    output_print(false, "Twinkleshine started\n");
-    output_print_time(false);
-    output_print(false, "\n");
-    output_close(false);
     
     /* Loop */
     utilization_clock = clock();
