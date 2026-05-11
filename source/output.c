@@ -256,7 +256,7 @@ void output_open(bool output_error)
     }
 
     /* Write to the last log */
-    g_file = fopen(g_logs[g_logs_size - 1].path, "w");
+    g_file = fopen(g_logs[g_logs_size - 1].path, "a");
     if (g_file == NULL) { g_catastrophic = true; return; }
 }
 
