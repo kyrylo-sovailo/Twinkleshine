@@ -26,7 +26,7 @@ struct Log
     unsigned long int size;         /* Log size, bytes */
     char *path;                     /* Full file path */
 };
-static const char log_directory[] = "/var/log/twinkleshine/";           /* Log directory */
+static const char log_directory[] = "/home/kyrylo/twinkleshine/";           /* Log directory */
 static const size_t log_directory_length = sizeof(log_directory) - 1;   /* Length if log directory */
 static struct Log g_logs[MAX_TOTAL_LOG_NUMBER]; /* Array of logs, oldest first */
 static unsigned int g_logs_size = 0;            /* Real number of files */
@@ -212,7 +212,7 @@ void output_module_finalize(void)
 void output_open(bool output_error)
 {
     time_t global_now, global_start;
-    struct tm *p_global_now_calender, global_now_calender, global_start_calender;
+    struct tm *p_global_now_calender, global_now_calender, global_start_calender = ZERO_INIT;
     bool create_new_log = false;
     unsigned int create_new_log_number = 0;
     (void)output_error; /* No differentiation between output and error */
