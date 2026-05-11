@@ -284,7 +284,7 @@ void output_vprint(bool output_error, const char *format, va_list va)
 {
     if (g_catastrophic)
     {
-        int result = vfprintf(stderr, format, va);
+        int result = vfprintf(output_error ? stderr : stdout, format, va);
         if (result < 0) exit(1); /* Nothing can be done, fatal error */
     }
     else if (g_file != NULL)

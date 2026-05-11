@@ -28,7 +28,7 @@ struct Error *ring_reserve(struct Ring *ring, size_t capacity);
 void ring_get_all(const struct Ring *ring, struct Value *value);
 
 /* Grants access to arbitrary bytes */
-struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool last, struct Value *value) NODISCARD;
+struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool latest, struct Value *value) NODISCARD;
 
 /* Adds first N unused bytes to ring, then optionally populate/get */
 struct Error *ring_push(struct Ring *ring, size_t size) NODISCARD;
@@ -39,7 +39,7 @@ struct Error *ring_push_get(struct Ring *ring, size_t size, struct Value *value)
 struct Error *ring_pop(struct Ring *ring, size_t size) NODISCARD;
 struct Error *ring_pop_read(struct Ring *ring, size_t size, char *p) NODISCARD;
 
-/* Removes last N used bytes */
+/* Removes latest N used bytes */
 struct Error *ring_unpush(struct Ring *ring, size_t size) NODISCARD;
 
 #endif

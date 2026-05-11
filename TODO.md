@@ -1,12 +1,12 @@
  - [X] Implement limits and throttling (priority: critical)
- - [ ] Fix the bug where short buffer is freed by every client (priority: critical)
+ - [X] Fix the bug where short buffer is freed by every client (priority: critical)
  - [ ] Implement Gopher
  - [ ] Implement Gemini
  - [ ] Implement HTTPS (priority: high)
  - [X] Implement IPv6 sockets
  - [X] Implement 404, 500 and other special pages (priority: critical)
- - [ ] Implement fun facts (priority: high)
+ - [X] Implement fun facts (priority: high)
  - [ ] Implement multithreading
  - [ ] Ensure debian packages work
  - [ ] Implement systemd scripts
- - [ ] Implement logging of normal non-error messages (priority: high)
+ - [X] Implement logging of normal non-error messages (priority: high)

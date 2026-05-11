@@ -17,7 +17,7 @@ struct Error *ring_reserve(struct Ring *ring, size_t capacity)
     size_t new_capacity;
     char *new_p;
 
-    new_capacity = (capacity == 0) ? 1 : capacity;
+    new_capacity = (ring->capacity == 0) ? 1 : ring->capacity;
     while (capacity > new_capacity) new_capacity *= 2;
 
     if (new_capacity == ring->capacity) return OK; /* Capacity is not changed */
@@ -76,7 +76,8 @@ void ring_get_all(const struct Ring *ring, struct Value *value)
     const struct Value zero = ZERO_INIT;
     size_t continuous_after_begin;
     bool continuous_size_after_begin;
-    if (ring->p == NULL) { *value = zero; return; }
+    *value = zero;
+    if (ring->p == NULL) return;
     
     continuous_after_begin = ring->capacity - ring->begin;
     continuous_size_after_begin = ring->size <= continuous_after_begin;
@@ -84,7 +85,6 @@ void ring_get_all(const struct Ring *ring, struct Value *value)
     {
         value->parts[0].size = ring->size;
         value->parts[0].p = ring->p + ring->begin;
-        value->parts[1] = zero.parts[1];
     }
     else
     {
@@ -95,16 +95,17 @@ void ring_get_all(const struct Ring *ring, struct Value *value)
     }
 }
 
-struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool last, struct Value *value)
+struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool latest, struct Value *value)
 {
     const struct Value zero = ZERO_INIT;
     size_t offset;
     size_t continuous_after_begin;
     bool continuous_offset_after_begin;
-    ARET2(location->size <= ring->size, "Cannot get %u bytes from ring with size %u", (unsigned int)location->size, (unsigned int)ring->size);
-    if (location->size == 0) { *value = zero; return OK; }
+    ARET2(location->offset + location->size <= ring->size, "Cannot get %u bytes from ring with size %u", (unsigned int)location->size, (unsigned int)ring->size);
+    *value = zero;
+    if (location->size == 0) return OK;
 
-    offset = last ? (ring->capacity - location->size - location->offset) : location->offset; /* Just invert it, it's that simple for now */
+    offset = latest ? (ring->size - location->size - location->offset) : location->offset; /* Just invert it, it's that simple for now */
 
     continuous_after_begin = ring->capacity - ring->begin;
     continuous_offset_after_begin = offset <= continuous_after_begin;
@@ -114,24 +115,22 @@ struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *loca
         bool continuous_size_after_offset;
         continuous_after_offset = continuous_after_begin - offset;
         
-        if (continuous_after_offset == 0) /* Special case for ring->begin + location->offset == ring->capacity */
+        if (continuous_after_offset == 0) /* Special case for ring->begin + offset == ring->capacity */
         {
             value->parts[0].size = location->size;
             value->parts[0].p = ring->p;
-            value->parts[1] = zero.parts[1];
             return OK;
         }
         continuous_size_after_offset = location->size <= continuous_after_offset;
         if (continuous_size_after_offset)
         {
             value->parts[0].size = location->size;
-            value->parts[0].p = ring->p + ring->begin + location->offset;
-            value->parts[1] = zero.parts[1];
+            value->parts[0].p = ring->p + ring->begin + offset;
         }
         else
         {
             value->parts[0].size = continuous_after_offset;
-            value->parts[0].p = ring->p + ring->begin + location->offset;
+            value->parts[0].p = ring->p + ring->begin + offset;
             value->parts[1].size = location->size - continuous_after_offset;
             value->parts[1].p = ring->p;
         }
@@ -140,7 +139,7 @@ struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *loca
     {
         value->parts[0].size = location->size;
         value->parts[0].p = ring->p + (offset - continuous_after_begin);
-        value->parts[1] = zero.parts[1]; /* Guaranteed no second rollover */
+        /* Guaranteed no second rollover */
     }
     return OK;
 }

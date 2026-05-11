@@ -2,6 +2,7 @@
 #include "../commonlib/include/error.h"
 #include "../commonlib/include/string.h"
 #include "../include/parser.h"
+#include "../include/random.h"
 #include "../include/ring.h"
 #include "../include/tables.h"
 
@@ -31,13 +32,14 @@ static const char html_template_error_page[] =
 "<p>%s</p>\n"
 "<p>%s</p>\n";
 
-static const char html_static_index_page[] =
+static const char html_template_index_page[] =
 "<header>\n"
 "    <h1>This is Kyrylo's website.</h1>\n"
 "</header>\n"
 "<p>It is displaying correctly.</p>\n"
 "<p>The style is not a bug. It is a feature.</p>\n"
-"<p>Served to you by the <a href=\"https://github.com/kyrylo-sovailo/Twinkleshine\">Twinkleshine server</a>.</p>\n";
+"<p>Served to you by the <a href=\"https://github.com/kyrylo-sovailo/Twinkleshine\">Twinkleshine server</a>, fully written in C by yours truly.</p>\n"
+"<p>Fun fact: %s</p>\n";
 
 static const char html_open[] =
 "<!DOCTYPE html>\n"
@@ -106,7 +108,7 @@ static struct Error *processor_push_metadata_one(const struct ValueLocation *req
     PRET(ring_get(request_stream, request_location, false, &value));
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        PRET(ring_push_write(response_queue, request_location->size, (const char*)&value.parts[i]));
+        PRET(ring_push_write(response_queue, value.parts[i].size, value.parts[i].p));
     }
     return OK;
 }
@@ -185,7 +187,7 @@ struct ExError processor_process(const struct Request *request, const struct Rin
         time_t global_time;
         struct tm *p_global_calender, global_calender = ZERO_INIT;
         EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_content_buffer, html_static_index_page, sizeof(html_static_index_page) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print_append(&g_content_buffer, html_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
         EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
         global_time = time(NULL);
         p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
@@ -204,7 +206,7 @@ struct ExError processor_process(const struct Request *request, const struct Rin
 
     /* Response */
     local_response.keep_alive = keep_alive;
-    local_response.stream_size = g_content_buffer.size;
+    local_response.stream_size = g_header_buffer.size + g_content_buffer.size;
 
     /* Metadata */
     EXPRETF(ring_reserve(response_queue, response_queue->size + (response == NULL ? sizeof(struct Response) : 0) + local_response.size), EEF_CLOSE_LOG);

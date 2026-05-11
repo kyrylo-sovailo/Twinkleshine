@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 struct ConstValue g_short_response_stream = ZERO_INIT;
-const struct Client *g_short_response_stream_owner = NULL;
+struct Client *g_short_response_stream_owner = NULL;
 
 void clients_shuffle(struct ClientBuffer *clients)
 {
@@ -19,7 +19,7 @@ void clients_shuffle(struct ClientBuffer *clients)
     {
         size_t j, shuffle_index;
         struct Client *client_i, *client_j;
-        j = fair_rand(i + 1);
+        j = random_rand(i + 1);
         client_i = &clients->p[i];
         client_j = &clients->p[j];
         shuffle_index = client_i->shuffle_index;

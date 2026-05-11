@@ -11,8 +11,8 @@
 #include <time.h>
 
 struct Client;
-extern struct ConstValue g_short_response_stream;           /* Short-term buffer that replaces some client's response_stream */
-extern const struct Client *g_short_response_stream_owner;  /* Which client does g_short_response_stream belong to */
+extern struct ConstValue g_short_response_stream;       /* Short-term buffer that replaces some client's response_stream */
+extern struct Client *g_short_response_stream_owner;    /* Which client does g_short_response_stream belong to */
 
 struct Client
 {

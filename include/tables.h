@@ -17,6 +17,8 @@ extern unsigned char character_map[256];
 extern const char *months_xxx[12];
 extern const char *days_xxx[7];
 
+extern const char *fun_facts[1002];
+
 void tables_module_initialize(void);
 
 #endif

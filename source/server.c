@@ -5,12 +5,14 @@
 #include "../include/memory.h"
 #include "../include/output.h"
 #include "../include/parser.h"
+#include "../include/random.h"
 #include "../include/ring.h"
 #include "../include/tables.h"
 
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
 #include <sys/socket.h>
@@ -128,6 +130,8 @@ static struct Error *create_listening_sockets(struct PollBuffer *polls)
     struct sockaddr_in ipv4 = ZERO_INIT, reserved_ipv4 = ZERO_INIT;
     struct sockaddr_in6 ipv6 = ZERO_INIT, reserved_ipv6 = ZERO_INIT;
 
+    ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
+
     ipv4.sin_family = AF_INET;
     ipv4.sin_addr.s_addr = INADDR_ANY;
     ipv4.sin_port = htons(80);
@@ -215,14 +219,13 @@ static struct ExError client_receive_data(struct Client *client, int fd, time_t 
 static struct ExError client_push_to_long_response_stream(struct Client *client, const struct ConstValue *data) NODISCARD;
 static struct ExError client_push_to_long_response_stream(struct Client *client, const struct ConstValue *data)
 {
-    /* TODO: bullshit */
     const struct ExError EXOK = { OK };
+    unsigned char i;
     EXPRETF(ring_reserve(&client->response_stream, client->response_stream.size + value_const_size(data)), EEF_CLOSE_LOG);
-    EXPRETF(ring_reserve(&client->response_queue, client->response_queue.size + sizeof(struct Response)), EEF_CLOSE_LOG);
-    /*
-    EXPRETF(ring_push_write(&client->response_stream, data->size, data->p), EEF_CLOSE_LOG_DIE);
-    EXPRETF(ring_push_write(&client->response_queue, sizeof(struct Response), (const char*)&data->size), EEF_CLOSE_LOG_DIE);
-    */
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        EXPRETF(ring_push_write(&client->response_stream, data->parts[i].size, data->parts[i].p), EEF_CLOSE_LOG_DIE);
+    }
     return EXOK;
 }
 
@@ -231,7 +234,7 @@ static struct ExError client_process_data(struct Client *client, time_t now) NOD
 static struct ExError client_process_data(struct Client *client, time_t now)
 {
     const struct ExError EXOK = { OK };
-    struct ConstValue response;
+    struct ConstValue response_stream;
 
     /* Parse request, quit if the request is incomplete */
     EXPRET(parser_parse(&client->parser, &client->request, &client->request_stream));
@@ -239,33 +242,39 @@ static struct ExError client_process_data(struct Client *client, time_t now)
     client->last_request_complete = now;
 
     /* Flush short output buffer to long output buffer because we are about to get another portion of data to send */
-    if (client == g_short_response_stream_owner)
+    if (g_short_response_stream_owner != NULL)
     {
         const struct ConstValue zero = ZERO_INIT;
-        EXPRET(client_push_to_long_response_stream(client, &g_short_response_stream));
+        EXPRET(client_push_to_long_response_stream(g_short_response_stream_owner, &g_short_response_stream));
         g_short_response_stream = zero;
         g_short_response_stream_owner = NULL;
         processor_free();
     }
 
     /* Generate response */
-    EXPRET(processor_process(&client->request, &client->request_stream, &client->response, &client->response_queue, &response));
+    EXPRET(processor_process(&client->request, &client->request_stream, (client->response_queue.size == 0) ? &client->response : NULL, &client->response_queue, &response_stream));
     EXPRETF(ring_pop(&client->request_stream, client->request.stream_size), EEF_CLOSE_LOG_DIE);
 
     /* Save the response to either short-term or long-term buffer */
-    if (client->response_stream.size > 0)
+    if (client->response_stream.size == 0)
     {
-        EXPRET(client_push_to_long_response_stream(client, &response));
-        processor_free();
+        g_short_response_stream = response_stream;
+        g_short_response_stream_owner = client;
     }
     else
     {
-        g_short_response_stream = response;
-        g_short_response_stream_owner = client;
+        EXPRET(client_push_to_long_response_stream(client, &response_stream));
+        processor_free();
     }
 
     /* Reset parser for future data */
-    if (client->response.keep_alive) { const struct Parser zero = ZERO_INIT; client->parser = zero; } /* TODO: bullshit? */
+    if (client->response.keep_alive)
+    {
+        const struct Request zero = ZERO_INIT;
+        const struct Parser zero2 = ZERO_INIT;
+        client->request = zero;
+        client->parser = zero2;
+    }
     return EXOK;
 }
 
@@ -323,7 +332,7 @@ static struct ExError client_send_long_output_buffer(struct Client *client, int 
     EXPRETF(send_value(&value, fd, sent_not_all), EEF_CLOSE_LOG);
     new_value_size = value_const_size(&value);
     sent_stream_size = old_value_size - new_value_size;
-    EXPRETF(ring_pop(&client->request_stream, sent_stream_size), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_pop(&client->response_stream, sent_stream_size), EEF_CLOSE_LOG_DIE);
 
     /* Analyze what was in that chunk of data */
     while (sent_stream_size > 0)
@@ -605,6 +614,7 @@ struct Error *server_main(void)
     int remaining = INT_MAX;
 
     /* Initialize */
+    random_module_initialize();
     tables_module_initialize();
     PGOTO(processor_module_initialize());
     PGOTO(create_listening_sockets(&polls));

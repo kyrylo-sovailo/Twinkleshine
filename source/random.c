@@ -2,9 +2,17 @@
 #include "../commonlib/include/bool.h"
 
 #include <stdlib.h>
+#include <time.h>
 
-/* rand() but size_t and accurate */
-size_t fair_rand(size_t outcome_number)
+void random_module_initialize(void)
+{
+    const time_t t = time(NULL);
+    const clock_t c = clock();
+    const unsigned int seed = (unsigned int)t + (unsigned int)c;
+    srand(seed);
+}
+
+size_t random_rand(size_t outcome_number)
 {
     size_t max_buffer, reject_number, max_buffer_accept;
     unsigned char rand_max_bits, max_bits, rand_bits;
