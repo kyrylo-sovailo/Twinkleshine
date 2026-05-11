@@ -250,7 +250,7 @@ void output_open(bool output_error)
         new_log.path = count_malloc(log_directory_length + name_length + 1);
         if (new_log.path == NULL) { g_catastrophic = true; return; }
         memcpy(new_log.path, log_directory, log_directory_length);
-        sprintf(new_log.path + log_directory_length, "%u-%u-%u.log", global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
+        sprintf(new_log.path + log_directory_length, "%d-%02d-%02d.log", global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
         insert(global_now, &new_log);
         ZERO_AND_FORGET(struct Log, new_log);
     }
