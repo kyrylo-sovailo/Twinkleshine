@@ -14,6 +14,7 @@
 static const char http_template_error[] =
 "HTTP/1.1 %s\r\n"
 "Server: Twinkleshine\r\n"
+"Cache-Control: no-cache, no-store, must-revalidate\r\n"
 "Content-Type: text/html; charset=UTF-8\r\n"
 "Content-Length: %u\r\n"
 "Connection: %s\r\n"
@@ -22,6 +23,7 @@ static const char http_template_error[] =
 static const char http_template_success[] = 
 "HTTP/1.1 200 OK\r\n"
 "Server: Twinkleshine\r\n"
+"Cache-Control: no-cache, no-store, must-revalidate\r\n"
 "Content-Type: text/html; charset=UTF-8\r\n"
 "Content-Length: %u\r\n"
 "Connection: %s\r\n"
