@@ -102,12 +102,16 @@ static struct Error *create_listening_sockets_one(struct PollBuffer *polls, stru
     struct Error *error = OK;
     const int no_int = 0, yes_int = 1;
     struct pollfd ipv4_poll = { -1, POLLIN, 0 }, ipv6_poll = { -1, POLLIN, 0 };
+    int flags;
     polls->size = 0;
 
     if (ipv4 != NULL)
     {
         ipv4_poll.fd = socket(AF_INET, SOCK_STREAM, 0);
         if (ipv4_poll.fd < 0) goto failure;
+        flags = fcntl(ipv4_poll.fd, F_GETFL, 0);
+        if (flags < 0) goto failure;
+        if (fcntl(ipv4_poll.fd, F_SETFL, flags | O_NONBLOCK) < 0) goto failure;
         if (setsockopt(ipv4_poll.fd, SOL_SOCKET, SO_REUSEADDR, &yes_int, sizeof(yes_int)) < 0) goto failure;
         if (bind(ipv4_poll.fd, (struct sockaddr*)ipv4, sizeof(*ipv4)) < 0) goto failure;
         if (listen(ipv4_poll.fd, MAX_CLIENTS_IN_QUEUE) < 0) goto failure;
@@ -117,6 +121,9 @@ static struct Error *create_listening_sockets_one(struct PollBuffer *polls, stru
     {
         ipv6_poll.fd = socket(AF_INET6, SOCK_STREAM, 0);
         if (ipv6_poll.fd < 0) goto failure;
+        flags = fcntl(ipv6_poll.fd, F_GETFL, 0);
+        if (flags < 0) goto failure;
+        if (fcntl(ipv6_poll.fd, F_SETFL, flags | O_NONBLOCK) < 0) goto failure;
         if (setsockopt(ipv6_poll.fd, SOL_SOCKET, SO_REUSEADDR, &yes_int, sizeof(yes_int)) < 0) goto failure;
         if (setsockopt(ipv6_poll.fd, IPPROTO_IPV6, IPV6_V6ONLY, ipv6_only ? &yes_int : &no_int, sizeof(yes_int)) < 0) goto failure;
         if (bind(ipv6_poll.fd, (struct sockaddr*)ipv6, sizeof(*ipv6)) < 0) goto failure;
@@ -200,14 +207,19 @@ static struct Error *process_listening_sockets(struct ClientBuffer *clients, str
     
     for (i = 0; i < ACCEPTING_SOCKETS; i++)
     {
-        socklen_t socket_address_size = sizeof(new_client.address);
+        socklen_t socket_address_size;
+        int flags;
+        
         AGOTO0((polls->p[i].revents & (POLLERR | POLLHUP)) == 0, "listening socket failed");
         if ((polls->p[i].revents & POLLIN) == 0) continue;
 
         /* Create poll */
+        socket_address_size = sizeof(new_client.address);
         new_poll.fd = accept(polls->p[i].fd, (struct sockaddr*)&new_client.address, &socket_address_size);
         AGOTO0(new_poll.fd >= 0, "accept() failed");
-        AGOTO0(fcntl(new_poll.fd, F_SETFL, O_NONBLOCK) >= 0, "fcntl() failed");
+        flags = fcntl(new_poll.fd, F_GETFL, 0);
+        AGOTO0(flags >= 0, "fcntl() failed");
+        AGOTO0(fcntl(new_poll.fd, F_SETFL, flags | O_NONBLOCK) >= 0, "fcntl() failed");
         if (max_clients || max_memory || max_utilization)
         {
             send_low_resources(&new_client, new_poll.fd, max_clients, max_memory, max_utilization);
