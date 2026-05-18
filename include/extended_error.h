@@ -10,11 +10,16 @@ struct Error;
 /* Action that should be taken in error handling */
 enum ExErrorFlag
 {
-    EEF_SEND    = 1,    /* Send fixed message to the client */
-    EEF_CLOSE   = 2,    /* Close the connection */
-    EEF_LOG     = 4,    /* Log the incident */
-    EEF_DIE     = 8     /* Total failure */
+    EEF_SEND        = 1,    /* Send fixed message to the client */
+    EEF_SHUTDOWN    = 2,    /* Start the shutdown process */
+    EEF_CLOSE       = 4,    /* Close the connection immediately */
+    EEF_LOG         = 8,    /* Log the incident */
+    EEF_DIE         = 16    /* Total failure */
 };
+
+#define EEF_SHUTDOWN_LOG EEF_SHUTDOWN | EEF_LOG
+#define EEF_SHUTDOWN_LOG_DIE EEF_SHUTDOWN | EEF_LOG | EEF_DIE
+#define EEF_SEND_SHUTDOWN_LOG(FIXED_RESPONSE) EEF_SEND | EEF_SHUTDOWN | EEF_LOG | FIXED_RESPONSE
 
 #define EEF_CLOSE_LOG EEF_CLOSE | EEF_LOG
 #define EEF_CLOSE_LOG_DIE EEF_CLOSE | EEF_LOG | EEF_DIE

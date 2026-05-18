@@ -98,8 +98,8 @@ Logging
 Socket allocation
 */
 
-#define ACCEPTING_SOCKETS 2
-#define ACCEPTING_SOCKET_IP4_HTTP 0
-#define ACCEPTING_SOCKET_IP6_HTTP 1
+#define ACCEPTING_SOCKETS 4
+#define ACCEPTING_SOCKET_IS_HTTP(INDEX)  ((INDEX) >= 0 && (INDEX) < 2)
+#define ACCEPTING_SOCKET_IS_HTTPS(INDEX) ((INDEX) >= 2 && (INDEX) < 4)
 
 #endif

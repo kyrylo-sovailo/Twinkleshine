@@ -10,9 +10,13 @@
 #include <sys/socket.h>
 #include <time.h>
 
-struct Client;
-extern struct ConstValue g_short_response_stream;       /* Short-term buffer that replaces some client's response_stream */
-extern struct Client *g_short_response_stream_owner;    /* Which client does g_short_response_stream belong to */
+enum CryptographyState
+{
+    CS_PENDING_HANDSHAKE = 0,   /* Handshake in progress */
+    CS_OPERATIONAL,             /* Handshake finished */
+    CS_PENDING_SHUTDOWN,        /* Shutdown in progress */
+    CS_SHUTDOWN                 /* Shutdown finished */
+};
 
 struct Client
 {
@@ -31,6 +35,10 @@ struct Client
     time_t last_request_stream_not_empty;       /* Last time when the input buffer was not empty */
     time_t last_response_stream_not_full;       /* Last time when the output buffer was not full */
     time_t last_response_complete;              /* Last time when the input buffer was empty or a complete response was sent */
+
+    /* Cryptography */
+    enum CryptographyState cryptography_state;  /* State */
+    void *ssl, *read_bio, *write_bio;           /* OpenSSL stuff */
     
     /* Other */
     struct sockaddr_storage address;            /* Client's IP address */
@@ -44,6 +52,9 @@ DECLARE_BUFFER_FINALIZE(struct Client, ClientBuffer, clients_)
 DECLARE_BUFFER(struct pollfd, PollBuffer)
 DECLARE_BUFFER_APPEND(struct pollfd, PollBuffer, polls_)
 DECLARE_BUFFER_FINALIZE(struct pollfd, PollBuffer, polls_)
+
+extern struct ConstValue g_short_response_stream;       /* Short-term buffer that replaces some client's response_stream */
+extern struct Client *g_short_response_stream_owner;    /* Which client does g_short_response_stream belong to */
 
 /* Sets the value shuffle index of N first clients to a random unique value */
 void clients_shuffle(struct ClientBuffer *clients);

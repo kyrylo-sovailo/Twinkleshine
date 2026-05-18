@@ -1,0 +1,131 @@
+#include "../../include/server.h"
+#include "../../commonlib/include/error.h"
+#include "../../include/client.h"
+#include "../../include/constants.h"
+#include "../../include/output.h"
+
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <signal.h>
+#include <unistd.h>
+
+static struct Error *server_try_socket_pair(struct PollBuffer *polls, unsigned short port, bool try_ipv4, bool try_ipv6, bool try_ipv6_only) NODISCARD;
+static struct Error *server_try_socket_pair(struct PollBuffer *polls, unsigned short port, bool try_ipv4, bool try_ipv6, bool try_ipv6_only)
+{
+    const size_t old_size = polls->size;
+    const int no_int = 0, yes_int = 1;
+    struct Error *error = OK;
+    struct pollfd ipv4_poll = { -1, POLLIN, 0 };
+    struct pollfd ipv6_poll = { -1, POLLIN, 0 };
+
+    if (try_ipv4)
+    {
+        int flags;
+        struct sockaddr_in ipv4 = ZERO_INIT;
+        ipv4.sin_family = AF_INET;
+        ipv4.sin_addr.s_addr = INADDR_ANY;
+        ipv4.sin_port = htons(port);
+    
+        ipv4_poll.fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (ipv4_poll.fd < 0) goto failure;
+        flags = fcntl(ipv4_poll.fd, F_GETFL, 0);
+        if (flags < 0) goto failure;
+        if (fcntl(ipv4_poll.fd, F_SETFL, flags | O_NONBLOCK) < 0) goto failure;
+        if (setsockopt(ipv4_poll.fd, SOL_SOCKET, SO_REUSEADDR, &yes_int, sizeof(yes_int)) < 0) goto failure;
+        if (bind(ipv4_poll.fd, (struct sockaddr*)&ipv4, sizeof(ipv4)) < 0) goto failure;
+        if (listen(ipv4_poll.fd, MAX_CLIENTS_IN_QUEUE) < 0) goto failure;
+    }
+
+    if (try_ipv6)
+    {
+        int flags;
+        struct sockaddr_in6 ipv6 = ZERO_INIT;
+        ipv6.sin6_family = AF_INET6;
+        ipv6.sin6_addr = in6addr_any;
+        ipv6.sin6_port = htons(port);
+
+        ipv6_poll.fd = socket(AF_INET6, SOCK_STREAM, 0);
+        if (ipv6_poll.fd < 0) goto failure;
+        flags = fcntl(ipv6_poll.fd, F_GETFL, 0);
+        if (flags < 0) goto failure;
+        if (fcntl(ipv6_poll.fd, F_SETFL, flags | O_NONBLOCK) < 0) goto failure;
+        if (setsockopt(ipv6_poll.fd, SOL_SOCKET, SO_REUSEADDR, &yes_int, sizeof(yes_int)) < 0) goto failure;
+        if (setsockopt(ipv6_poll.fd, IPPROTO_IPV6, IPV6_V6ONLY, try_ipv6_only ? &yes_int : &no_int, sizeof(int)) < 0) goto failure;
+        if (bind(ipv6_poll.fd, (struct sockaddr*)&ipv6, sizeof(ipv6)) < 0) goto failure;
+        if (listen(ipv6_poll.fd, MAX_CLIENTS_IN_QUEUE) < 0) goto failure;
+    }
+
+    if (try_ipv4) { PGOTO(polls_append(polls, &ipv4_poll, 1)); }
+    if (try_ipv6) { PGOTO(polls_append(polls, &ipv6_poll, 1)); }
+    return OK;
+
+    failure:
+    if (ipv4_poll.fd >= 0) close(ipv4_poll.fd);
+    if (ipv6_poll.fd >= 0) close(ipv6_poll.fd);
+    polls->size = old_size;
+    return error;
+}
+
+static struct Error *server_create_socket_pair(struct PollBuffer *polls, const char ***mode, const unsigned short **port) NODISCARD;
+static struct Error *server_create_socket_pair(struct PollBuffer *polls, const char ***mode, const unsigned short **port)
+{
+    const size_t old_size = polls->size;
+    unsigned char i;
+
+    /* Trying in that order: IPv6+IPv4 > IPv6* > IPv6 > IPv4 > try again with reserve port */
+    ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
+    for (i = 0; i < 2; i++)
+    {
+        PRET(server_try_socket_pair(polls, **port, true, true, true));
+        if (polls->size > old_size) break;
+        (*mode)++;
+        PRET(server_try_socket_pair(polls, **port, false, true, false));
+        if (polls->size > old_size) break;
+        (*mode)++;
+        PRET(server_try_socket_pair(polls, **port, false, true, true));
+        if (polls->size > old_size) break;
+        (*mode)++;
+        PRET(server_try_socket_pair(polls, **port, true, false, false));
+        if (polls->size > old_size) break;
+        (*mode)++;
+        (*port)++;
+    }
+    ARET0(polls->size > old_size, "All modes failed");
+    return OK;
+}
+
+struct Error *server_initialize(struct PollBuffer *polls)
+{
+    const struct pollfd zero = { -1, POLLIN, 0 };
+    const char *modes[] = { "IPv6+IPv4", "IPv6*", "IPv6", "IPv4" };
+    const unsigned short http_ports[] = { 80, 8080 };
+    const unsigned short https_ports[] = { 443, 8443 };
+    const char **http_mode, **https_mode;
+    const unsigned short *http_port, *https_port;
+    
+    http_mode = &modes[0];
+    http_port = &http_ports[0];
+    PRET(server_create_socket_pair(polls, &http_mode, &http_port));
+    for (;polls->size < 2;) { PRET(polls_append(polls, &zero, 1)); }
+
+    https_mode = &modes[0];
+    https_port = &https_ports[0];
+    PRET(server_create_socket_pair(polls, &https_mode, &https_port));
+    for (;polls->size < 4;) { PRET(polls_append(polls, &zero, 1)); }
+
+    output_open(false);
+    output_print(false, "Twinkleshine started\n");
+    output_print(false, "HTTP  mode: %s:%d\n", *http_mode, (int)*http_port);
+    output_print(false, "HTTPS mode: %s:%d\n", *https_mode, (int)*https_port);
+    output_print_time(false);
+    output_print(false, "\n");
+    output_close(false);
+    return OK;
+}
+
+void server_finalize(struct ClientBuffer *clients, struct PollBuffer *polls)
+{
+    clients_finalize(clients);
+    polls_finalize(polls);
+}
