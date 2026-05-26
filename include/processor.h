@@ -41,7 +41,7 @@ struct Error *processor_module_initialize(void);
 /* Finalize the module */
 void processor_module_finalize(void);
 
-/* Processes request and creates response (if response is NULL, response is pushed to response_queue) */
+/* Processes request and creates response (response + metadata + stream) */
 struct ExError processor_process(const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 

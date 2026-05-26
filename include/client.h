@@ -29,6 +29,7 @@ struct Client
     struct Ring response_stream;                /* Buffer for outgoing data, contains response contents */
     struct Response response;                   /* Metadata of the first response in response_stream */
     struct Ring response_queue;                 /* Metadata of all other responses in response_stream */
+    size_t response_count;                      /* Metadata count */
 
     /* Time keeping */
     time_t last_request_complete;               /* Last time when the input buffer was empty or a complete request was received */
@@ -67,5 +68,8 @@ void client_finalize(struct Client *client);
 
 /* Finalizes poll */
 void poll_finalize(struct pollfd *poll);
+
+/* Returns the size of the response stream (including the buffer) */
+size_t client_response_stream_size(const struct Client *client);
 
 #endif

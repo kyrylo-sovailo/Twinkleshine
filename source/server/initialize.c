@@ -88,7 +88,7 @@ static struct Error *server_create_socket_pair(struct PollBuffer *polls, const c
         (*mode)++;
         PRET(server_try_socket_pair(polls, **port, true, false, false));
         if (polls->size > old_size) break;
-        (*mode)++;
+        (*mode)++; (*mode) -= 4;
         (*port)++;
     }
     ARET0(polls->size > old_size, "All modes failed");

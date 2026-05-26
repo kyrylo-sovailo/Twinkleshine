@@ -32,7 +32,7 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
 static struct Error *server_accept_connection(struct ClientBuffer *clients, struct PollBuffer *polls, time_t now,
     unsigned char index, bool max_clients, bool max_memory, bool max_utilization)
 {
-    struct Error *error;
+    struct ExError exerror;
     const size_t old_size = clients->size;
     struct Client new_client = ZERO_INIT;
     struct pollfd new_poll = { -1, 0, 0 };
@@ -42,10 +42,10 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
     /* Create poll */
     socket_address_size = sizeof(new_client.address);
     new_poll.fd = accept(polls->p[index].fd, (struct sockaddr*)&new_client.address, &socket_address_size);
-    AGOTO0(new_poll.fd >= 0, "accept() failed");
+    EXAGOTO0(new_poll.fd >= 0, "accept() failed", EEF_DIE);
     flags = fcntl(new_poll.fd, F_GETFL, 0);
-    AGOTO0(flags >= 0, "fcntl() failed");
-    AGOTO0(fcntl(new_poll.fd, F_SETFL, flags | O_NONBLOCK) >= 0, "fcntl() failed");
+    EXAGOTO0(flags >= 0, "fcntl() failed", EEF_DIE);
+    EXAGOTO0(fcntl(new_poll.fd, F_SETFL, flags | O_NONBLOCK) >= 0, "fcntl() failed", EEF_DIE);
     if (max_clients || max_memory || max_utilization)
     {
         if (!ACCEPTING_SOCKET_IS_HTTPS(index)) server_send_low_resources(&new_client, new_poll.fd, max_clients, max_memory, max_utilization);
@@ -57,11 +57,14 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
     new_client.last_request_complete = now;
     new_client.last_request_stream_not_empty = now;
     new_client.last_response_stream_not_full = now;
-    new_client.last_request_complete = now;
-    if (ACCEPTING_SOCKET_IS_HTTPS(index)) { PGOTO(cryptography_initialize(&new_client)); }
+    new_client.last_response_complete = now;
+    if (ACCEPTING_SOCKET_IS_HTTPS(index))
+    {
+        EXPGOTO(cryptography_initialize(&new_client));
+    }
 
-    PGOTO(polls_append(polls, &new_poll, 1));
-    PGOTO(clients_append(clients, &new_client, 1));
+    EXPGOTOF(polls_append(polls, &new_poll, 1), EEF_DIE);
+    EXPGOTOF(clients_append(clients, &new_client, 1), EEF_DIE);
     return OK;
 
     failure:
@@ -69,7 +72,16 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
     client_finalize(&new_client);
     polls->size = old_size + ACCEPTING_SOCKETS;
     clients->size = old_size;
-    return error;
+    if ((exerror.flags & EEF_LOG) != 0) /* TODO: what are we doing? Head hurts, refactor later */
+    {
+        error_print(exerror.error, &new_client);
+    }
+    if (exerror.flags & EEF_DIE)
+    {
+        return exerror.error;
+    }
+    error_finalize(exerror.error);
+    return OK;
 }
 
 struct Error *server_accept_connections(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now)
@@ -82,7 +94,7 @@ struct Error *server_accept_connections(struct ClientBuffer *clients, struct Pol
     for (index = 0; index < ACCEPTING_SOCKETS; index++)
     {
         ARET0((polls->p[index].revents & (POLLERR | POLLHUP)) == 0, "listening socket failed");
-        if ((polls->p[index].revents & POLLIN) != 0) continue;
+        if ((polls->p[index].revents & POLLIN) == 0) continue;
         PRET(server_accept_connection(clients, polls, now, index, max_clients, max_memory, max_utilization));
     }
     return OK;

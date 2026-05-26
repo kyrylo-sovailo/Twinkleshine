@@ -94,11 +94,10 @@ static void processor_set_locations_one(const struct ValueLocation *request_loca
 
 static void processor_set_locations(const struct Request *request, struct Response *response)
 {
-    size_t size = 0;
-    processor_set_locations_one(&request->method, &response->method, &size);
-    processor_set_locations_one(&request->protocol, &response->protocol, &size);
-    processor_set_locations_one(&request->resource, &response->resource, &size);
-    response->size = size;
+    response->size = 0;
+    processor_set_locations_one(&request->method, &response->method, &response->size);
+    processor_set_locations_one(&request->protocol, &response->protocol, &response->size);
+    processor_set_locations_one(&request->resource, &response->resource, &response->size);
 }
 
 static struct Error *processor_push_metadata_one(const struct ValueLocation *request_location, const struct Ring *request_stream, struct Ring *response_queue) NODISCARD;
@@ -169,10 +168,9 @@ struct ExError processor_process(const struct Request *request, const struct Rin
     const struct ExError EXOK = { OK };
     const struct ConstValue zero = ZERO_INIT;
     const bool keep_alive = request->keep_alive;
-    struct Response local_response;
     struct Value method, resource;
 
-    processor_set_locations(request, &local_response);
+    processor_set_locations(request, response);
     EXPRETF(ring_get(request_stream, &request->method, false, &method), EEF_CLOSE_LOG_DIE);
     EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
 
@@ -207,13 +205,12 @@ struct ExError processor_process(const struct Request *request, const struct Rin
     }
 
     /* Response */
-    local_response.keep_alive = keep_alive;
-    local_response.stream_size = g_header_buffer.size + g_content_buffer.size;
+    response->keep_alive = keep_alive;
+    response->stream_size = g_header_buffer.size + g_content_buffer.size;
 
     /* Metadata */
-    EXPRETF(ring_reserve(response_queue, response_queue->size + (response == NULL ? sizeof(struct Response) : 0) + local_response.size), EEF_CLOSE_LOG);
-    if (response == NULL) { EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (char*)&local_response), EEF_CLOSE_LOG_DIE); }
-    else *response = local_response;
+    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
+    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
     EXPRETF(processor_push_metadata(request, request_stream, response_queue), EEF_CLOSE_LOG_DIE);
 
     /* Data */

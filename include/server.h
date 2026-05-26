@@ -25,7 +25,7 @@ struct Error *server_send_value(struct ConstValue *value, int fd, bool *connecti
 struct ExError server_receive_value(struct Ring *ring, int fd, size_t size, bool *connection_exhausted, bool *connection_closed) NODISCARD;
 
 /* accept.c */
-/* Processes accepting sockets and creates new clients */
+/* Processes accepting sockets and creates new clients (Failure -> die) */
 struct Error *server_accept_connections(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now) NODISCARD;
 
 /* receive.c */
@@ -41,6 +41,7 @@ struct ExError server_process_data(struct Client *client, time_t now) NODISCARD;
 struct ExError server_send_data(struct Client *client, int fd, time_t now, bool *connection_saturated) NODISCARD;
 
 /* high_level.c */
+/* Runs the server (Failure -> die) */
 struct Error *server_main(void) NODISCARD;
 
 #endif

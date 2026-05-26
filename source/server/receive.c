@@ -2,6 +2,7 @@
 #include "../../commonlib/include/error.h"
 #include "../../include/client.h"
 #include "../../include/constants.h"
+#include "../../include/cryptography.h"
 
 #include <sys/ioctl.h>
 
@@ -24,6 +25,10 @@ struct ExError server_receive_data(struct Client *client, int fd, time_t now, bo
     if (client->request_stream.size > 0) client->last_request_stream_not_empty = now;
 
     /* Handle cryptography */
-    if (client->ssl != NULL) /* TODO */ { (void)old_size; }
+    if (client->ssl != NULL)
+    {
+        EXPRET(cryptography_decrypt(client, old_size));
+        if (client->cryptography_state == CS_SHUTDOWN) *connection_exhausted = *connection_closed = true; /* TODO: add this to the "close vs shutdown" file */
+    }
     return EXOK;
 }

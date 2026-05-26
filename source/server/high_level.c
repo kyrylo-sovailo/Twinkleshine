@@ -7,31 +7,25 @@
 
 #include <limits.h>
 
-static size_t get_response_stream_size(const struct Client *client)
-{
-    size_t size = client->response_stream.size;
-    if (client == g_short_response_stream_owner) size += value_const_size(&g_short_response_stream);
-    return size;
-}
-
 static bool get_makes_sense_to_receive(struct Client *client)
 {
     return client->parser.state != RPS_END
-        && get_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
+        && client_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
 
 static bool get_makes_sense_to_parse(struct Client *client)
 {
     return client->parser.state != RPS_END
         && client->request_stream.size > client->request.stream_size
-        && get_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
+        && client_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
 
 static bool get_makes_sense_to_send(struct Client *client)
 {
-    return get_response_stream_size(client) > 0;
+    return client_response_stream_size(client) > 0;
 }
 
+/* Checks or calculates all timeouts (Failure -> [send], close and log) */
 static struct Error *check_timeout(time_t timeout, time_t now, int *remaining) NODISCARD;
 static struct Error *check_timeout(time_t timeout, time_t now, int *remaining)
 {
@@ -49,6 +43,7 @@ static struct Error *check_timeout(time_t timeout, time_t now, int *remaining)
     return OK;
 }
 
+/* Checks or calculates all timeouts */
 static struct ExError check_timeouts(struct Client *client, time_t now, int *remaining) NODISCARD;
 static struct ExError check_timeouts(struct Client *client, time_t now, int *remaining)
 {
@@ -63,12 +58,12 @@ static struct ExError check_timeouts(struct Client *client, time_t now, int *rem
         EXPRETF(check_timeout(client->last_request_stream_not_empty + MAX_EMPTY_REQUEST_STREAM_TIME, now, remaining),
             EEF_CLOSE_LOG);
     }
-    if (get_response_stream_size(client) >= MAX_RESPONSE_STREAM_SIZE)
+    if (client_response_stream_size(client) >= MAX_RESPONSE_STREAM_SIZE)
     {
         EXPRETF(check_timeout(client->last_response_stream_not_full + MAX_FULL_RESPONSE_STREAM_TIME, now, remaining),
             EEF_CLOSE_LOG);
     }
-    if (get_response_stream_size(client) > 0)
+    if (client_response_stream_size(client) > 0)
     {
         EXPRETF(check_timeout(client->last_response_complete + MAX_INCOMPLETE_RESPONSE_TIME, now, remaining),
             EEF_CLOSE_LOG);
@@ -112,7 +107,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
                 /* Termination for Connection: keep-alive */
                 EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
                 EXAGOTO(client->parser.state == (enum ParserState)0, EEF_CLOSE_LOG);
-                EXAGOTO(get_response_stream_size(client) == 0, EEF_CLOSE_LOG);
+                EXAGOTO(client_response_stream_size(client) == 0, EEF_CLOSE_LOG);
                 client_finalize(client);
                 poll_finalize(poll);
                 return OK;
@@ -142,7 +137,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
             bool connection_saturated = false;
             EXPGOTO(server_send_data(client, poll->fd, now, &connection_saturated));
             if (connection_saturated) send_may_succeed = false;
-            if (client->parser.state == RPS_END && get_response_stream_size(client) == 0)
+            if (client->parser.state == RPS_END && client_response_stream_size(client) == 0)
             {
                 /* Termination for Connection: close */
                 EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
@@ -177,6 +172,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
     }
     if ((exerror.flags & EEF_SHUTDOWN) != 0)
     {
+        /* TODO: error handling is atrocious */
         client_finalize(client);
         poll_finalize(poll);
     }
@@ -187,6 +183,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
     }
     if ((exerror.flags & EEF_LOG) != 0)
     {
+        /* TODO: same problem as shutdown: EEF_LOG is not fatal */
         error_print(exerror.error, client);
     }
     if ((exerror.flags & EEF_DIE) != 0)

@@ -70,6 +70,13 @@ void poll_finalize(struct pollfd *poll)
     if (poll->fd >= 0) { close(poll->fd); poll->fd = -1; }
 }
 
+size_t client_response_stream_size(const struct Client *client)
+{
+    size_t size = client->response_stream.size;
+    if (client == g_short_response_stream_owner) size += value_const_size(&g_short_response_stream);
+    return size;
+}
+
 static void clients_finalize_element(struct Client *client) { client_finalize(client); }
 static void polls_finalize_element(struct pollfd *poll) { poll_finalize(poll); }
 

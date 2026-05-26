@@ -24,6 +24,7 @@ include(config/cmake/common.cmake)
 ####################
 include(config/cmake/executable.cmake)
 include(config/cmake/manual.cmake)
+include(config/cmake/keys.cmake)
 
 ###############################
 # Installing generic features #
