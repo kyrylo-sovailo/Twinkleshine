@@ -53,22 +53,22 @@ static struct ExError check_timeouts(struct Client *client, time_t now, int *rem
     if (client->response_stream.size > 0)
     {
         EXPRETF(check_timeout(client->last_request_complete + MAX_INCOMPLETE_REQUEST_TIME, now, remaining),
-            EEF2_SEND_SHUTDOWN_LOG(FR_MAX_INCOMPLETE_REQUEST_TIME));
+            EEF_SEND_SHUTDOWN_LOG(FR_MAX_INCOMPLETE_REQUEST_TIME));
     }
     if (client->request_stream.size == 0)
     {
         EXPRETF(check_timeout(client->last_request_stream_not_empty + MAX_EMPTY_REQUEST_STREAM_TIME, now, remaining),
-            EEF2_SHUTDOWN_LOG);
+            EEF_SHUTDOWN_LOG);
     }
     if (client_response_stream_size(client) >= MAX_RESPONSE_STREAM_SIZE)
     {
         EXPRETF(check_timeout(client->last_response_stream_not_full + MAX_FULL_RESPONSE_STREAM_TIME, now, remaining),
-            EEF2_CLOSE_LOG);
+            EEF_CLOSE_LOG);
     }
     if (client_response_stream_size(client) > 0)
     {
         EXPRETF(check_timeout(client->last_response_complete + MAX_INCOMPLETE_RESPONSE_TIME, now, remaining),
-            EEF2_CLOSE_LOG);
+            EEF_CLOSE_LOG);
     }
     return EXOK;
 }
@@ -87,11 +87,22 @@ static struct ExError server_process_client_round_recovery(struct Client *client
     return EXOK;
 }
 
-static struct ExError server_process_client_round(struct Client *client, struct pollfd *poll, time_t now, enum ConnectionFlag *flags, bool *done_something) NODISCARD;
-static struct ExError server_process_client_round(struct Client *client, struct pollfd *poll, time_t now, enum ConnectionFlag *flags, bool *done_something)
+static struct ExError server_process_client_round(struct Client *client, struct pollfd *poll, time_t now, enum ConnectionFlag *flags, bool *first, bool *done_something) NODISCARD;
+static struct ExError server_process_client_round(struct Client *client, struct pollfd *poll, time_t now, enum ConnectionFlag *flags, bool *first, bool *done_something)
 {
     const struct ExError EXOK = { OK };
     struct ExError exerror;
+
+    if (*first)
+    {
+        *first = false;
+
+        /* Check if connection failed */
+        EXAGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed", EEF_CLOSE_LOG);
+
+        /* Check if connection should be terminated */
+        EXPGOTO(check_timeouts(client, now, NULL));
+    }
 
     /*
     Receive if:
@@ -109,11 +120,11 @@ static struct ExError server_process_client_round(struct Client *client, struct 
         {
             /* Client terminated connection or initiated TLS shutdown or completed TLS shutdown */
             /* TODO: In HTTP, client shouldn't terminate "Connection: close" connections */
-            EXAGOTO(client->request_stream.size == 0, EEF2_CLOSE_LOG);
-            EXAGOTO(client->parser.state == 0 || client->parser.state == RPS_END, EEF2_CLOSE_LOG);
-            EXAGOTO(client_response_stream_size(client) == 0, EEF2_CLOSE_LOG);
-            EXAGOTO(client->response_queue.size == 0, EEF2_CLOSE_LOG);
-            EXAGOTO(client->response_count == 0, EEF2_CLOSE_LOG);
+            EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
+            EXAGOTO(client->parser.state == 0 || client->parser.state == RPS_END, EEF_CLOSE_LOG);
+            EXAGOTO(client_response_stream_size(client) == 0, EEF_CLOSE_LOG);
+            EXAGOTO(client->response_queue.size == 0, EEF_CLOSE_LOG);
+            EXAGOTO(client->response_count == 0, EEF_CLOSE_LOG);
             client_finalize(client);
             poll_finalize(poll);
             return EXOK;
@@ -129,7 +140,7 @@ static struct ExError server_process_client_round(struct Client *client, struct 
     if (get_makes_sense_to_parse(client))
     {
         *done_something = true;
-        EXPGOTO(server_process_data(client, now)); /* EEF_SHUTDOWN may only be returned here, and this part is never executed when in shutdown mode */
+        EXPGOTO(server_process_data(client, now));
         if (client->ssl != NULL && client->parser.state == RPS_END)
         {
             /* Server should shutdown connection */
@@ -150,9 +161,9 @@ static struct ExError server_process_client_round(struct Client *client, struct 
         || (client->ssl != NULL && client->cryptography_state == CS_SHUTDOWN && client_response_stream_size(client) == 0)) /* TODO: am I sure? */
         {
             /* Server should close connection */
-            EXAGOTO(client->request_stream.size == 0, EEF2_CLOSE_LOG);
-            EXAGOTO(client->response_queue.size == 0, EEF2_CLOSE_LOG);
-            EXAGOTO(client->response_count == 0, EEF2_CLOSE_LOG);
+            EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
+            EXAGOTO(client->response_queue.size == 0, EEF_CLOSE_LOG);
+            EXAGOTO(client->response_count == 0, EEF_CLOSE_LOG);
             client_finalize(client);
             poll_finalize(poll);
             return EXOK;
@@ -188,19 +199,9 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
     while (true)
     {
         bool done_something = false;
-        if (first)
-        {
-            first = false;
-
-            /* Check if connection failed */
-            EXAGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed", EEF2_CLOSE_LOG);
-
-            /* Check if connection should be terminated */
-            EXPGOTO(check_timeouts(client, now, NULL));
-        }
 
         /* Do everything I can */
-        EXPGOTO(server_process_client_round(client, poll, now, &flags, &done_something));
+        EXPGOTO(server_process_client_round(client, poll, now, &flags, &first, &done_something));
         
         /* Nothing to do, prepare to wait */
         if (done_something) continue;

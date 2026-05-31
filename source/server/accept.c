@@ -42,10 +42,10 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
     /* Create poll */
     socket_address_size = sizeof(new_client.address);
     new_poll.fd = accept(polls->p[index].fd, (struct sockaddr*)&new_client.address, &socket_address_size);
-    EXAGOTO0(new_poll.fd >= 0, "accept() failed", EEF2_CLOSE_LOG);
+    EXAGOTO0(new_poll.fd >= 0, "accept() failed", EEF_CLOSE_LOG);
     flags = fcntl(new_poll.fd, F_GETFL, 0);
-    EXAGOTO0(flags >= 0, "fcntl() failed", EEF2_CLOSE_LOG);
-    EXAGOTO0(fcntl(new_poll.fd, F_SETFL, flags | O_NONBLOCK) >= 0, "fcntl() failed", EEF2_CLOSE_LOG);
+    EXAGOTO0(flags >= 0, "fcntl() failed", EEF_CLOSE_LOG);
+    EXAGOTO0(fcntl(new_poll.fd, F_SETFL, flags | O_NONBLOCK) >= 0, "fcntl() failed", EEF_CLOSE_LOG);
     if (max_clients || max_memory || max_utilization)
     {
         if (!ACCEPTING_SOCKET_IS_HTTPS(index)) server_send_low_resources(&new_client, new_poll.fd, max_clients, max_memory, max_utilization);
@@ -67,8 +67,8 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
         new_client.cryptography_state = CS_OPERATIONAL;
     }
 
-    EXPGOTOF(polls_append(polls, &new_poll, 1), EEF2_CLOSE_LOG);
-    EXPGOTOF(clients_append(clients, &new_client, 1), EEF2_CLOSE_LOG);
+    EXPGOTOF(polls_append(polls, &new_poll, 1), EEF_CLOSE_LOG);
+    EXPGOTOF(clients_append(clients, &new_client, 1), EEF_CLOSE_LOG);
     return OK;
 
     failure:

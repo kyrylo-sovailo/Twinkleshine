@@ -10,10 +10,10 @@ static struct ExError server_reserve_and_push_value(struct Ring *response_stream
 {
     const struct ExError EXOK = { OK };
     unsigned char i;
-    EXPRETF(ring_reserve(response_stream, response_stream->size + value_const_size(data)), EEF2_CLOSE_LOG);
+    EXPRETF(ring_reserve(response_stream, response_stream->size + value_const_size(data)), EEF_CLOSE_LOG);
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        EXPRETF(ring_push_write(response_stream, data->parts[i].size, data->parts[i].p), EEF2_CLOSE_LOG_DIE);
+        EXPRETF(ring_push_write(response_stream, data->parts[i].size, data->parts[i].p), EEF_CLOSE_LOG_DIE);
     }
     return EXOK;
 }
@@ -41,7 +41,7 @@ struct ExError server_process_data(struct Client *client, time_t now)
 
     /* Generate response */
     EXPRET(processor_process(&client->request, &client->request_stream, &response, &client->response_queue, &response_stream)); /* TODO: response queue is the odd one out */
-    EXPRETF(ring_pop(&client->request_stream, client->request.stream_size), EEF2_CLOSE_LOG_DIE);
+    EXPRETF(ring_pop(&client->request_stream, client->request.stream_size), EEF_CLOSE_LOG_DIE);
     if (client->response_count == 0) client->response = response;
 
     /* Save the response to either short-term or long-term buffer */

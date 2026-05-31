@@ -18,12 +18,22 @@ enum ExErrorFlag
     PARTIAL_EEF_DIE         = 16    /* Total failure */
 };
 
-#define EEF2_SHUTDOWN_LOG PARTIAL_EEF_SHUTDOWN | PARTIAL_EEF_LOG
-#define EEF2_SEND_SHUTDOWN_LOG(FIXED_RESPONSE) PARTIAL_EEF_SEND | PARTIAL_EEF_SHUTDOWN | PARTIAL_EEF_LOG | FIXED_RESPONSE
+/*
+Note:
+It is extremely important to avoid recursion during TLS shutdown 
+EEF_SHUTDOWN may only occur in several places:
+- during timeout check
+- during parsing
+First one is avoided because of the 'first' flag
+Second one is avoided parsing does not happen when in pending shutdown mode
+*/
 
-#define EEF2_CLOSE_LOG PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG
-#define EEF2_CLOSE_LOG_DIE PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG | PARTIAL_EEF_DIE
-#define EEF2_SEND_CLOSE_LOG(FIXED_RESPONSE) PARTIAL_EEF_SEND | PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG | FIXED_RESPONSE
+#define EEF_SHUTDOWN_LOG PARTIAL_EEF_SHUTDOWN | PARTIAL_EEF_LOG
+#define EEF_SEND_SHUTDOWN_LOG(FIXED_RESPONSE) PARTIAL_EEF_SEND | PARTIAL_EEF_SHUTDOWN | PARTIAL_EEF_LOG | FIXED_RESPONSE
+
+#define EEF_CLOSE_LOG PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG
+#define EEF_CLOSE_LOG_DIE PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG | PARTIAL_EEF_DIE
+#define EEF_SEND_CLOSE_LOG(FIXED_RESPONSE) PARTIAL_EEF_SEND | PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG | FIXED_RESPONSE
 
 struct ExError { struct Error *error; enum ExErrorFlag flags; };
 

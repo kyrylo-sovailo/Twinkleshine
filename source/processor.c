@@ -171,35 +171,35 @@ struct ExError processor_process(const struct Request *request, const struct Rin
     struct Value method, resource;
     
     /* Actual logic */
-    EXPRETF(ring_get(request_stream, &request->method, false, &method), EEF2_CLOSE_LOG_DIE);
-    EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF2_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(request_stream, &request->method, false, &method), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
     if (!value_compare_case_mem(&method, "get", strlen("get")))
     {
-        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF2_CLOSE_LOG);
-        EXPRETF(string_print_append(&g_content_buffer, html_template_error_page, "405 Method Not Allowed", "Invalid method"), EEF2_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF2_CLOSE_LOG);
-        EXPRETF(string_print(&g_header_buffer, http_template_error, "405 Method Not Allowed", (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close"), EEF2_CLOSE_LOG);
+        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print_append(&g_content_buffer, html_template_error_page, "405 Method Not Allowed", "Invalid method"), EEF_CLOSE_LOG);
+        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print(&g_header_buffer, http_template_error, "405 Method Not Allowed", (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
     }
     else if (value_compare_case_mem(&resource, "/", strlen("/")))
     {
         time_t global_time;
         struct tm *p_global_calender, global_calender = ZERO_INIT;
-        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF2_CLOSE_LOG);
-        EXPRETF(string_print_append(&g_content_buffer, html_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF2_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF2_CLOSE_LOG);
+        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print_append(&g_content_buffer, html_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
+        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
         global_time = time(NULL);
         p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
         if (p_global_calender != NULL) global_calender = *p_global_calender;
         EXPRETF(string_print(&g_header_buffer, http_template_success, (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close",
             days_xxx[global_calender.tm_wday], global_calender.tm_mday, months_xxx[global_calender.tm_mon], 1900 + global_calender.tm_year,
-            global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec), EEF2_CLOSE_LOG);
+            global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec), EEF_CLOSE_LOG);
     }
     else
     {
-        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF2_CLOSE_LOG);
-        EXPRETF(string_print_append(&g_content_buffer, html_template_error_page, "404 Not Found", "Invalid resource"), EEF2_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF2_CLOSE_LOG);
-        EXPRETF(string_print(&g_header_buffer, http_template_error, "404 Not Found", (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close"), EEF2_CLOSE_LOG);
+        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print_append(&g_content_buffer, html_template_error_page, "404 Not Found", "Invalid resource"), EEF_CLOSE_LOG);
+        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print(&g_header_buffer, http_template_error, "404 Not Found", (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
     }
 
     /* Response */
@@ -208,9 +208,9 @@ struct ExError processor_process(const struct Request *request, const struct Rin
     response->stream_size = g_header_buffer.size + g_content_buffer.size;
 
     /* Metadata */
-    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF2_CLOSE_LOG);
-    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF2_CLOSE_LOG_DIE);
-    EXPRETF(processor_push_metadata(request, request_stream, response_queue), EEF2_CLOSE_LOG_DIE);
+    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
+    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
+    EXPRETF(processor_push_metadata(request, request_stream, response_queue), EEF_CLOSE_LOG_DIE);
 
     /* Data */
     *response_stream = zero;
@@ -234,8 +234,8 @@ struct ExError processor_fixed(enum FixedResponse fixed,
     response->stream_size = value_const_size(response_stream);
 
     /* Metadata */
-    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF2_CLOSE_LOG);
-    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF2_CLOSE_LOG_DIE);
+    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
+    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
 
     /* Data */
     processor_fixed_failsafe(fixed, response_stream);

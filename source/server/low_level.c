@@ -41,8 +41,8 @@ struct ExError server_receive_value(struct Ring *ring, int fd, size_t size, enum
     unsigned char i;
 
     /* Get buffer */
-    EXPRETF(ring_reserve(ring, ring->size + size), EEF2_CLOSE_LOG);
-    EXPRETF(ring_push_get(ring, size, &value), EEF2_CLOSE_LOG_DIE);
+    EXPRETF(ring_reserve(ring, ring->size + size), EEF_CLOSE_LOG);
+    EXPRETF(ring_push_get(ring, size, &value), EEF_CLOSE_LOG_DIE);
 
     /* Receive */
     for (i = 0; i < VALUE_PARTS; i++)
@@ -60,13 +60,13 @@ struct ExError server_receive_value(struct Ring *ring, int fd, size_t size, enum
         }
         else
         {
-            EXARET0(errno == EAGAIN || errno == EWOULDBLOCK, "read() failed", EEF2_CLOSE_LOG);
+            EXARET0(errno == EAGAIN || errno == EWOULDBLOCK, "read() failed", EEF_CLOSE_LOG);
             *flags |= CF_EXHAUSTED;
             break;
         }
     }
 
     /* Check for unused buffer */
-    EXPRETF(ring_unpush(ring, value_size(&value)), EEF2_CLOSE_LOG_DIE);
+    EXPRETF(ring_unpush(ring, value_size(&value)), EEF_CLOSE_LOG_DIE);
     return EXOK;
 }
