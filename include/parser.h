@@ -14,6 +14,7 @@ struct Request
     struct ValueLocation method;    /* Requested method */
     struct ValueLocation resource;  /* Requested resource */
     struct ValueLocation protocol;  /* Protocol version */
+    struct ValueLocation user;      /* User agent */
     bool keep_alive;                /* Keep connection alive */
 
     struct ValueLocation content;   /* Content */

@@ -39,6 +39,10 @@ static struct ExError parser_parse_name_value(struct Parser *parser, struct Requ
             if (!parts_remaining) break;
         }
     }
+    else if (value_compare_case_mem(&name, "user-agent", strlen("user-agent")))
+    {
+        request->user = parser->current_value;
+    }
     return EXOK;
 }
 

@@ -57,6 +57,10 @@ static const char html_close[] =
 "</body>\n"
 "</html>\n";
 
+static const char txt_robots[] = 
+"User-agent: *\n"
+"Disallow: /\n";
+
 /* Buffer for fixed responses (must be generated because I can't get content length in compile time without magic numbers) */
 static struct CharBuffer g_http_fixed_max_clients = ZERO_INIT;
 static struct CharBuffer g_http_fixed_max_memory = ZERO_INIT;
@@ -167,8 +171,8 @@ struct ExError processor_process(const struct Request *request, const struct Rin
 {
     const struct ExError EXOK = { OK };
     const struct ConstValue zero = ZERO_INIT;
-    const bool keep_alive = request->keep_alive;
     struct Value method, resource;
+    bool keep_alive = request->keep_alive;
     
     /* Actual logic */
     EXPRETF(ring_get(request_stream, &request->method, false, &method), EEF_CLOSE_LOG_DIE);
@@ -187,6 +191,19 @@ struct ExError processor_process(const struct Request *request, const struct Rin
         EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
         EXPRETF(string_print_append(&g_content_buffer, html_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
         EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
+        global_time = time(NULL);
+        p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
+        if (p_global_calender != NULL) global_calender = *p_global_calender;
+        EXPRETF(string_print(&g_header_buffer, http_template_success, (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close",
+            days_xxx[global_calender.tm_wday], global_calender.tm_mday, months_xxx[global_calender.tm_mon], 1900 + global_calender.tm_year,
+            global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec), EEF_CLOSE_LOG);
+    }
+    else if (value_compare_case_mem(&resource, "/robots.txt", strlen("/robots.txt")))
+    {
+        time_t global_time;
+        struct tm *p_global_calender, global_calender = ZERO_INIT;
+        keep_alive = false;
+        EXPRETF(string_copy_mem(&g_content_buffer, txt_robots, sizeof(txt_robots) - 1), EEF_CLOSE_LOG);
         global_time = time(NULL);
         p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
         if (p_global_calender != NULL) global_calender = *p_global_calender;
