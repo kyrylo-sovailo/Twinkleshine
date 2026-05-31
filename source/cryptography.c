@@ -86,7 +86,7 @@ static struct ExError cryptography_create_phony_response(struct Client *client, 
     struct Response phony = ZERO_INIT;
     if (phony_size == 0) return EXOK;
     phony.stream_size = phony_size;
-    EXPRETF(ring_reserve(&client->response_queue, sizeof(struct Response)), EEF_CLOSE_LOG);
+    EXPRETF(ring_reserve(&client->response_queue, client->response_queue.size + sizeof(struct Response)), EEF_CLOSE_LOG);
     EXPRETF(ring_push_write(&client->response_queue, sizeof(struct Response), (const char*)&phony), EEF_CLOSE_LOG_DIE);
     if (client->response_count == 0) client->response = phony;
     client->response_count++;
@@ -158,7 +158,7 @@ struct ExError cryptography_finalize(struct Client *client)
 {
     const struct ExError EXOK = { OK };
     size_t old_stream_size, new_stream_size, encrypted_value_size;
-    if (client->cryptography_state == CS_PENDING_HANDSHAKE || client->cryptography_state == CS_OPERATIONAL)
+    if (client->cryptography_state != CS_SHUTDOWN)
     {
         const int code = SSL_shutdown(client->ssl);
         if (code <= 0) client->cryptography_state = CS_PENDING_SHUTDOWN;
@@ -219,8 +219,8 @@ struct ExError cryptography_decrypt(struct Client *client, size_t old_request_st
     {
         const int code = SSL_shutdown(client->ssl);
         if (code > 0) client->cryptography_state = CS_SHUTDOWN;
-        else if (code == 0) { /*Do nothing */ }
-        else
+        if (code == 0) { /*Do nothing */ }
+        if (code < 0)
         {
             const int error = SSL_get_error(client->ssl, code);
             EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_shutdown() failed", EEF_CLOSE_LOG);
