@@ -9,13 +9,15 @@
 
 static bool get_makes_sense_to_receive(struct Client *client)
 {
-    return client->parser.state != RPS_END
+    return client->cryptography_state != CS_SHUTDOWN
+        && client->parser.state != RPS_END
         && client_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
 
 static bool get_makes_sense_to_parse(struct Client *client)
 {
-    return client->parser.state != RPS_END
+    return client->cryptography_state == CS_OPERATIONAL
+        && client->parser.state != RPS_END
         && client->request_stream.size > client->request.stream_size
         && client_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
@@ -51,24 +53,126 @@ static struct ExError check_timeouts(struct Client *client, time_t now, int *rem
     if (client->response_stream.size > 0)
     {
         EXPRETF(check_timeout(client->last_request_complete + MAX_INCOMPLETE_REQUEST_TIME, now, remaining),
-            EEF_SEND_CLOSE_LOG(FR_MAX_INCOMPLETE_REQUEST_TIME));
+            EEF2_SEND_SHUTDOWN_LOG(FR_MAX_INCOMPLETE_REQUEST_TIME));
     }
     if (client->request_stream.size == 0)
     {
         EXPRETF(check_timeout(client->last_request_stream_not_empty + MAX_EMPTY_REQUEST_STREAM_TIME, now, remaining),
-            EEF_CLOSE_LOG);
+            EEF2_SHUTDOWN_LOG);
     }
     if (client_response_stream_size(client) >= MAX_RESPONSE_STREAM_SIZE)
     {
         EXPRETF(check_timeout(client->last_response_stream_not_full + MAX_FULL_RESPONSE_STREAM_TIME, now, remaining),
-            EEF_CLOSE_LOG);
+            EEF2_CLOSE_LOG);
     }
     if (client_response_stream_size(client) > 0)
     {
         EXPRETF(check_timeout(client->last_response_complete + MAX_INCOMPLETE_RESPONSE_TIME, now, remaining),
-            EEF_CLOSE_LOG);
+            EEF2_CLOSE_LOG);
     }
     return EXOK;
+}
+
+static struct ExError server_process_client_round_recovery(struct Client *client, enum FixedResponse fixed) NODISCARD;
+static struct ExError server_process_client_round_recovery(struct Client *client, enum FixedResponse fixed)
+{
+    const struct ExError EXOK = { OK };
+    struct Response response;
+    struct ConstValue response_stream;
+    EXPRET(processor_fixed(fixed, &response, &client->response_queue, &response_stream));
+    if (client->response_count == 0) client->response = response;
+    EXPRET(cryptography_encrypt(client, &response, &response_stream));
+    client->response_count++;
+    EXPRET(cryptography_finalize(client));
+    return EXOK;
+}
+
+static struct ExError server_process_client_round(struct Client *client, struct pollfd *poll, time_t now, enum ConnectionFlag *flags, bool *done_something) NODISCARD;
+static struct ExError server_process_client_round(struct Client *client, struct pollfd *poll, time_t now, enum ConnectionFlag *flags, bool *done_something)
+{
+    const struct ExError EXOK = { OK };
+    struct ExError exerror;
+
+    /*
+    Receive if:
+    - read() hasn't failed yet
+    - connection is kept alive
+    - enough output buffer
+    */
+    if ((*flags & CF_EXHAUSTED) == 0 && (*flags & CF_CLOSED) == 0 && get_makes_sense_to_receive(client))
+    {
+        *done_something = true;
+        EXPGOTO(server_receive_data(client, poll->fd, now, flags));
+        if ((*flags & CF_CLOSED) != 0
+        || client->cryptography_state == CS_SHUTDOWN
+        || (client->cryptography_state == CS_PENDING_SHUTDOWN && client_response_stream_size(client) == 0))
+        {
+            /* Client terminated connection or initiated TLS shutdown or completed TLS shutdown */
+            /* TODO: In HTTP, client shouldn't terminate "Connection: close" connections */
+            EXAGOTO(client->request_stream.size == 0, EEF2_CLOSE_LOG);
+            EXAGOTO(client->parser.state == 0 || client->parser.state == RPS_END, EEF2_CLOSE_LOG);
+            EXAGOTO(client_response_stream_size(client) == 0, EEF2_CLOSE_LOG);
+            EXAGOTO(client->response_queue.size == 0, EEF2_CLOSE_LOG);
+            EXAGOTO(client->response_count == 0, EEF2_CLOSE_LOG);
+            client_finalize(client);
+            poll_finalize(poll);
+            return EXOK;
+        }
+    }
+    
+    /*
+    Parse and process if:
+    - connection is kept alive
+    - some new data arrived
+    - enough output buffer
+    */
+    if (get_makes_sense_to_parse(client))
+    {
+        *done_something = true;
+        EXPGOTO(server_process_data(client, now)); /* EEF_SHUTDOWN may only be returned here, and this part is never executed when in shutdown mode */
+        if (client->ssl != NULL && client->parser.state == RPS_END)
+        {
+            /* Server should shutdown connection */
+            EXPGOTO(cryptography_finalize(client));
+        }
+    }
+
+    /*
+    Send if:
+    - read() hasn't failed yet
+    - non-empty output buffer
+    */
+    if (((*flags & CF_SATURATED) == 0) && get_makes_sense_to_send(client))
+    {
+        *done_something = true;
+        EXPGOTO(server_send_data(client, poll->fd, now, flags));
+        if ((client->ssl == NULL && client->parser.state == RPS_END && client_response_stream_size(client) == 0)
+        || (client->ssl != NULL && client->cryptography_state == CS_SHUTDOWN && client_response_stream_size(client) == 0)) /* TODO: am I sure? */
+        {
+            /* Server should close connection */
+            EXAGOTO(client->request_stream.size == 0, EEF2_CLOSE_LOG);
+            EXAGOTO(client->response_queue.size == 0, EEF2_CLOSE_LOG);
+            EXAGOTO(client->response_count == 0, EEF2_CLOSE_LOG);
+            client_finalize(client);
+            poll_finalize(poll);
+            return EXOK;
+        }
+    }
+
+    return EXOK;
+
+    failure:
+    if (client->ssl != NULL && client->cryptography_state != CS_PENDING_SHUTDOWN && (exerror.flags & PARTIAL_EEF_SHUTDOWN) != 0)
+    {
+        /* Recoverable error, perform shutdown instead of close */
+        *done_something = true;
+        error_print(exerror.error, client);
+        error_finalize(exerror.error);
+        EXPRET(server_process_client_round_recovery(client, (enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF)); /* sic, not EXPGOTO */
+        return EXOK;
+    }
+    
+    return exerror;
 }
 
 /* Processes client, call when revents has something to it (Failure -> die) */
@@ -76,121 +180,69 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
 static struct Error *server_process_client(struct Client *client, struct pollfd *poll, int *remaining, time_t now)
 {
     struct ExError exerror;
-    bool receive_may_succeed, send_may_succeed;
+    enum ConnectionFlag flags = CF_NO;
+    bool first = true;
 
-    /* Check if connection failed */
-    EXAGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed", EEF_CLOSE_LOG);
-
-    /* Check if connection should be terminated */
-    EXPGOTO(check_timeouts(client, now, NULL));
-    
-    /* Do everything you can */
-    receive_may_succeed = !(((poll->events & POLLIN) != 0) && ((poll->revents & POLLIN) == 0));
-    send_may_succeed = !(((poll->events & POLLOUT) != 0) && ((poll->revents & POLLOUT) == 0));
+    if ((poll->events & POLLIN) != 0 && (poll->revents & POLLIN) == 0) flags |= CF_EXHAUSTED;
+    if ((poll->events & POLLOUT) != 0 && (poll->revents & POLLOUT) == 0) flags |= CF_SATURATED;
     while (true)
     {
-        bool done = true;
-
-        /*
-        Receive if:
-        - read() hasn't failed yet
-        - connection is kept alive
-        - enough output buffer
-        */
-        if (receive_may_succeed && get_makes_sense_to_receive(client))
+        bool done_something = false;
+        if (first)
         {
-            bool connection_exhausted = false, connection_closed = false;
-            EXPGOTO(server_receive_data(client, poll->fd, now, &connection_exhausted, &connection_closed));
-            if (connection_exhausted) receive_may_succeed = false;
-            if (connection_closed)
-            {
-                /* Termination for Connection: keep-alive */
-                EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
-                EXAGOTO(client->parser.state == (enum ParserState)0, EEF_CLOSE_LOG);
-                EXAGOTO(client_response_stream_size(client) == 0, EEF_CLOSE_LOG);
-                client_finalize(client);
-                poll_finalize(poll);
-                return OK;
-            }
-            done = false;
+            first = false;
+
+            /* Check if connection failed */
+            EXAGOTO0(((poll->revents & (POLLERR | POLLHUP)) == 0), "Connection failed", EEF2_CLOSE_LOG);
+
+            /* Check if connection should be terminated */
+            EXPGOTO(check_timeouts(client, now, NULL));
         }
+
+        /* Do everything I can */
+        EXPGOTO(server_process_client_round(client, poll, now, &flags, &done_something));
         
-        /*
-        Parse and process if:
-        - connection is kept alive
-        - some new data arrived
-        - enough output buffer
-        */
-        if (get_makes_sense_to_parse(client))
-        {
-            EXPGOTO(server_process_data(client, now));
-            done = false;
-        }
-
-        /*
-        Send if:
-        - read() hasn't failed yet
-        - non-empty output buffer
-        */
-        if (send_may_succeed && get_makes_sense_to_send(client))
-        {
-            bool connection_saturated = false;
-            EXPGOTO(server_send_data(client, poll->fd, now, &connection_saturated));
-            if (connection_saturated) send_may_succeed = false;
-            if (client->parser.state == RPS_END && client_response_stream_size(client) == 0)
-            {
-                /* Termination for Connection: close */
-                EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
-                client_finalize(client);
-                poll_finalize(poll);
-                return OK;
-            }
-            done = false;
-        }
-
         /* Nothing to do, prepare to wait */
-        if (done)
+        if (done_something) continue;
+        poll->events = POLLHUP | POLLERR;
+        if (get_makes_sense_to_receive(client)) poll->events |= POLLIN;
+        if (get_makes_sense_to_send(client)) poll->events |= POLLOUT;
+        EXPIGNORE(check_timeouts(client, now, remaining));
+        return OK;
+
+        failure:
+        if ((exerror.flags & PARTIAL_EEF_SEND) != 0 && client->ssl == NULL)
         {
-            poll->events = POLLHUP | POLLERR;
-            if (get_makes_sense_to_receive(client)) poll->events |= POLLIN;
-            if (get_makes_sense_to_send(client)) poll->events |= POLLOUT;
-            EXPIGNORE(check_timeouts(client, now, remaining));
-            return OK;
+            struct ConstValue response;
+            unsigned char i;
+            processor_fixed_failsafe((enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
+            for (i = 0; i < VALUE_PARTS; i++)
+            {
+                if (response.parts[i].size > 0) (void)send(poll->fd, response.parts[i].p, response.parts[i].size, 0);
+            }
         }
+        if ((exerror.flags & PARTIAL_EEF_SHUTDOWN) != 0)
+        {
+            /* Not intercepted? Too bad */
+            client_finalize(client);
+            poll_finalize(poll);
+        }
+        if ((exerror.flags & PARTIAL_EEF_CLOSE) != 0)
+        {
+            client_finalize(client);
+            poll_finalize(poll);
+        }
+        if ((exerror.flags & PARTIAL_EEF_LOG) != 0)
+        {
+            error_print(exerror.error, client);
+        }
+        if ((exerror.flags & PARTIAL_EEF_DIE) != 0)
+        {
+            return exerror.error;
+        }
+        error_finalize(exerror.error);
     }
 
-    failure:
-    if ((exerror.flags & EEF_SEND) != 0)
-    {
-        struct ConstValue response;
-        unsigned char i;
-        processor_fixed((enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
-        for (i = 0; i < VALUE_PARTS; i++)
-        {
-            if (response.parts[i].size > 0) (void)send(poll->fd, response.parts[i].p, response.parts[i].size, 0);
-        }
-    }
-    if ((exerror.flags & EEF_SHUTDOWN) != 0)
-    {
-        /* TODO: error handling is atrocious */
-        client_finalize(client);
-        poll_finalize(poll);
-    }
-    if ((exerror.flags & EEF_CLOSE) != 0)
-    {
-        client_finalize(client);
-        poll_finalize(poll);
-    }
-    if ((exerror.flags & EEF_LOG) != 0)
-    {
-        /* TODO: same problem as shutdown: EEF_LOG is not fatal */
-        error_print(exerror.error, client);
-    }
-    if ((exerror.flags & EEF_DIE) != 0)
-    {
-        return exerror.error;
-    }
-    error_finalize(exerror.error);
     return OK;
 }
 

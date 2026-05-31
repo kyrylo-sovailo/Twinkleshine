@@ -10,20 +10,20 @@ struct Error;
 /* Action that should be taken in error handling */
 enum ExErrorFlag
 {
-    EEF_SEND        = 1,    /* Send fixed message to the client */
-    EEF_SHUTDOWN    = 2,    /* Start the shutdown process */
-    EEF_CLOSE       = 4,    /* Close the connection immediately */
-    EEF_LOG         = 8,    /* Log the incident */
-    EEF_DIE         = 16    /* Total failure */
+    /* Formula: [SEND] & [SHUTDOWN|CLOSE] & [LOG] & [DIE]  */
+    PARTIAL_EEF_SEND        = 1,    /* Send fixed message to the client */
+    PARTIAL_EEF_SHUTDOWN    = 2,    /* Start the shutdown process */
+    PARTIAL_EEF_CLOSE       = 4,    /* Close the connection immediately */
+    PARTIAL_EEF_LOG         = 8,    /* Log the incident */
+    PARTIAL_EEF_DIE         = 16    /* Total failure */
 };
 
-#define EEF_SHUTDOWN_LOG EEF_SHUTDOWN | EEF_LOG
-#define EEF_SHUTDOWN_LOG_DIE EEF_SHUTDOWN | EEF_LOG | EEF_DIE
-#define EEF_SEND_SHUTDOWN_LOG(FIXED_RESPONSE) EEF_SEND | EEF_SHUTDOWN | EEF_LOG | FIXED_RESPONSE
+#define EEF2_SHUTDOWN_LOG PARTIAL_EEF_SHUTDOWN | PARTIAL_EEF_LOG
+#define EEF2_SEND_SHUTDOWN_LOG(FIXED_RESPONSE) PARTIAL_EEF_SEND | PARTIAL_EEF_SHUTDOWN | PARTIAL_EEF_LOG | FIXED_RESPONSE
 
-#define EEF_CLOSE_LOG EEF_CLOSE | EEF_LOG
-#define EEF_CLOSE_LOG_DIE EEF_CLOSE | EEF_LOG | EEF_DIE
-#define EEF_SEND_CLOSE_LOG(FIXED_RESPONSE) EEF_SEND | EEF_CLOSE | EEF_LOG | FIXED_RESPONSE
+#define EEF2_CLOSE_LOG PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG
+#define EEF2_CLOSE_LOG_DIE PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG | PARTIAL_EEF_DIE
+#define EEF2_SEND_CLOSE_LOG(FIXED_RESPONSE) PARTIAL_EEF_SEND | PARTIAL_EEF_CLOSE | PARTIAL_EEF_LOG | FIXED_RESPONSE
 
 struct ExError { struct Error *error; enum ExErrorFlag flags; };
 

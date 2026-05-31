@@ -60,15 +60,15 @@ static struct Error *server_pop_responses(struct Client *client, time_t now, siz
 }
 
 /* Sends short-term output buffer (Failure -> close and log) */
-static struct ExError server_send_short_response_stream(struct Client *client, int fd, time_t now, bool *connection_saturated) NODISCARD;
-static struct ExError server_send_short_response_stream(struct Client *client, int fd, time_t now, bool *connection_saturated)
+static struct ExError server_send_short_response_stream(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags) NODISCARD;
+static struct ExError server_send_short_response_stream(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
 {
     const struct ExError EXOK = { OK };
     size_t old_value_size, new_value_size, sent_stream_size;
 
     /* Send chunk of data */
     old_value_size = value_const_size(&g_short_response_stream);
-    EXPRETF(server_send_value(&g_short_response_stream, fd, connection_saturated), EEF_CLOSE_LOG);
+    EXPRETF(server_send_value(&g_short_response_stream, fd, flags), EEF2_CLOSE_LOG);
     new_value_size = value_const_size(&g_short_response_stream);
     sent_stream_size = old_value_size - new_value_size;
     if (new_value_size == 0)
@@ -78,14 +78,14 @@ static struct ExError server_send_short_response_stream(struct Client *client, i
     }
 
     /* Analyze what was in that chunk of data */
-    EXPRETF(server_pop_responses(client, now, sent_stream_size), EEF_CLOSE_LOG_DIE);
+    EXPRETF(server_pop_responses(client, now, sent_stream_size), EEF2_CLOSE_LOG_DIE);
     /* TODO: additional sanity checks? */
     return EXOK;
 }
 
 /* Retrieves long-term output buffer */
-static struct ExError server_send_long_output_buffer(struct Client *client, int fd, time_t now, bool *connection_saturated) NODISCARD;
-static struct ExError server_send_long_output_buffer(struct Client *client, int fd, time_t now, bool *connection_saturated)
+static struct ExError server_send_long_output_buffer(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags) NODISCARD;
+static struct ExError server_send_long_output_buffer(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
 {
     const struct ExError EXOK = { OK };
     struct ConstValue value; struct Value nonconst_value;
@@ -95,29 +95,29 @@ static struct ExError server_send_long_output_buffer(struct Client *client, int 
     ring_get_all(&client->response_stream, &nonconst_value);
     value_to_const_value(&value, &nonconst_value);
     old_value_size = value_const_size(&value);
-    EXPRETF(server_send_value(&value, fd, connection_saturated), EEF_CLOSE_LOG);
+    EXPRETF(server_send_value(&value, fd, flags), EEF2_CLOSE_LOG);
     new_value_size = value_const_size(&value);
     sent_stream_size = old_value_size - new_value_size;
-    EXPRETF(ring_pop(&client->response_stream, sent_stream_size), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_pop(&client->response_stream, sent_stream_size), EEF2_CLOSE_LOG_DIE);
 
     /* Analyze what was in that chunk of data */
-    EXPRETF(server_pop_responses(client, now, sent_stream_size), EEF_CLOSE_LOG_DIE);
+    EXPRETF(server_pop_responses(client, now, sent_stream_size), EEF2_CLOSE_LOG_DIE);
     /* TODO: additional sanity checks? */
     return EXOK;
 }
 
-struct ExError server_send_data(struct Client *client, int fd, time_t now, bool *connection_saturated)
+struct ExError server_send_data(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
 {
     const struct ExError EXOK = { OK };
     size_t short_response_stream_size = 0;
     if (client == g_short_response_stream_owner)
     {
-        EXPRET(server_send_short_response_stream(client, fd, now, connection_saturated));
+        EXPRET(server_send_short_response_stream(client, fd, now, flags));
         short_response_stream_size = value_const_size(&g_short_response_stream);
     }
-    if (!*connection_saturated && client->response_stream.size > 0)
+    if ((*flags & CF_SATURATED) == 0 && client->response_stream.size > 0)
     {
-        EXPRET(server_send_long_output_buffer(client, fd, now, connection_saturated));
+        EXPRET(server_send_long_output_buffer(client, fd, now, flags));
     }
     if (short_response_stream_size + client->response_stream.size < MAX_RESPONSE_STREAM_SIZE)
     {

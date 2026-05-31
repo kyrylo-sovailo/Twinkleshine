@@ -13,23 +13,23 @@ static struct ExError parser_parse_name_value(struct Parser *parser, struct Requ
 {
     const struct ExError EXOK = { OK };
     struct Value name;
-    EXPRETF(ring_get(request_stream, &parser->current_name, false, &name), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(request_stream, &parser->current_name, false, &name), EEF2_CLOSE_LOG_DIE);
     if (value_compare_case_mem(&name, "content-length", strlen("content-length")))
     {
         struct Value value;
-        EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF_CLOSE_LOG_DIE);
+        EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF2_CLOSE_LOG_DIE);
         value_trim(&value);
         EXARET0(value_to_uint(&value, &parser->remaining_content),
             "Invalid integer",
-            EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
         EXARET0(parser->current_value.offset + parser->current_value.size + parser->remaining_content <= MAX_REQUEST_SIZE,
             "Promised request size exceeded",
-            EEF_SEND_CLOSE_LOG(FR_MAX_REQUEST_CONTENT_SIZE));
+            EEF2_SEND_SHUTDOWN_LOG(FR_MAX_REQUEST_CONTENT_SIZE));
     }
     else if (value_compare_case_mem(&name, "connection", strlen("connection")))
     {
         struct Value value;
-        EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF_CLOSE_LOG_DIE);
+        EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF2_CLOSE_LOG_DIE);
         while (true)
         {
             struct Value current_value;
@@ -64,7 +64,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                 request->method.size = 1;
                 parser->state = RPS_WAIT_METHOD_END;
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
             
         case RPS_WAIT_METHOD_END:
@@ -76,7 +76,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
             {
                 request->method.size++;
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_RESOURCE_BEGIN:
@@ -90,7 +90,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                 request->resource.size = 1;
                 parser->state = RPS_WAIT_RESOURCE_END;
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_RESOURCE_END:
@@ -102,7 +102,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
             {
                 request->resource.size++;
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_PROTOCOL_BEGIN:
@@ -116,7 +116,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                 request->protocol.size = 1;
                 parser->state = RPS_WAIT_PROTOCOL_END;
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_PROTOCOL_END:
@@ -133,7 +133,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                 if (c == '\r') parser->state = RPS_WAIT_LINE_LF;
                 else { parser->tolerated_lf = true; parser->state = RPS_WAIT_NAME_BEGIN; } /* Tolerating LF ending */
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_LINE_CR:
@@ -146,7 +146,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                 if (c == '\r') parser->state = RPS_WAIT_LINE_LF;
                 else { parser->tolerated_lf = true; parser->state = RPS_WAIT_NAME_BEGIN; } /* Tolerating LF ending */
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_LINE_LF:
@@ -200,7 +200,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                     parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received ?? LF */
                 }
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
             
         case RPS_WAIT_NAME_END:
@@ -218,7 +218,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                 parser->current_value.size = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_COLON:
@@ -232,7 +232,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                 parser->current_value.size = 0;
                 parser->state = RPS_WAIT_VALUE_END;
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
             
         case RPS_WAIT_VALUE_END:
@@ -254,7 +254,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
                     parser->state = RPS_WAIT_NAME_BEGIN;
                 }
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_FINAL_LINE_LF:
@@ -262,7 +262,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
             {
                 parser->state = (parser->remaining_content > 0) ? RPS_WAIT_CONTENT : RPS_END; /* Received CR LF CR LF */
             }
-            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_CLOSE_LOG(FR_REQUEST_INVALID));
+            else EXRET1("Invalid symbol: %d", (int)c, EEF2_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_CONTENT:
@@ -298,14 +298,14 @@ struct ExError parser_parse(struct Parser *parser, struct Request *request, cons
     not_parsed_location.offset = request->stream_size;
     if (request_stream->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
     else not_parsed_location.size = request_stream->size - not_parsed_location.offset;
-    EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF2_CLOSE_LOG_DIE);
     for (i = 0; i < VALUE_PARTS; i++)
     {
         EXPRET(parser_parse_part(parser, request, request_stream, &not_parsed.parts[i]));
     }
     if (request_stream->size >= MAX_REQUEST_SIZE)
     {
-        EXARET0(parser->state == RPS_END, "Actual request size exceeded", EEF_SEND_CLOSE_LOG(FR_MAX_REQUEST_HEADER_SIZE));
+        EXARET0(parser->state == RPS_END, "Actual request size exceeded", EEF2_SEND_SHUTDOWN_LOG(FR_MAX_REQUEST_HEADER_SIZE));
     }
     return EXOK;
 }

@@ -19,6 +19,9 @@ void cryptography_module_finalize(void);
 /* Initializes cryptography for one client */
 struct ExError cryptography_initialize(struct Client *client) NODISCARD;
 
+/* Starts finalization for one client */
+struct ExError cryptography_finalize(struct Client *client) NODISCARD;
+
 /* Decodes the data placed in request_stream (and also places data in response stream) */
 struct ExError cryptography_decrypt(struct Client *client, size_t old_request_stream_size) NODISCARD;
 

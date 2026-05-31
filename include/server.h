@@ -14,15 +14,23 @@ struct ConstValue;
 struct PollBuffer;
 struct Ring;
 
+enum ConnectionFlag
+{
+    CF_NO           = 0,
+    CF_SATURATED    = 1,    /* send() failed */
+    CF_EXHAUSTED    = 2,    /* read() failed */
+    CF_CLOSED       = 4     /* read() failed because of closed connection */
+};
+
 /* initialize.c */
 struct Error *server_initialize(struct PollBuffer *polls) NODISCARD;
 void server_finalize(struct ClientBuffer *clients, struct PollBuffer *polls);
 
 /* low_level.c */
 /* Sends the given value (Failure -> close and log) */
-struct Error *server_send_value(struct ConstValue *value, int fd, bool *connection_saturated) NODISCARD;
+struct Error *server_send_value(struct ConstValue *value, int fd, enum ConnectionFlag *flags) NODISCARD;
 /* Receives the given amount of bytes to ring */
-struct ExError server_receive_value(struct Ring *ring, int fd, size_t size, bool *connection_exhausted, bool *connection_closed) NODISCARD;
+struct ExError server_receive_value(struct Ring *ring, int fd, size_t size, enum ConnectionFlag *flags) NODISCARD;
 
 /* accept.c */
 /* Processes accepting sockets and creates new clients (Failure -> die) */
@@ -30,7 +38,7 @@ struct Error *server_accept_connections(struct ClientBuffer *clients, struct Pol
 
 /* receive.c */
 /* Allocates client's input buffer and reads MIN_AVAILABLE_REQUEST_STREAM to MAX_REQUEST_STREAM_SIZE bytes of data into it */
-struct ExError server_receive_data(struct Client *client, int fd, time_t now, bool *connection_exhausted, bool *connection_closed) NODISCARD;
+struct ExError server_receive_data(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags) NODISCARD;
 
 /* process.c */
 /* Parses the data in the input buffer, and if the request is complete, processes it and pushes into output buffer */
@@ -38,7 +46,7 @@ struct ExError server_process_data(struct Client *client, time_t now) NODISCARD;
 
 /* send.c */
 /* Sends the client's output buffer */
-struct ExError server_send_data(struct Client *client, int fd, time_t now, bool *connection_saturated) NODISCARD;
+struct ExError server_send_data(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags) NODISCARD;
 
 /* high_level.c */
 /* Runs the server (Failure -> die) */

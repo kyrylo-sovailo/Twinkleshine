@@ -7,10 +7,9 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
-/* https://hackmd.io/@oscarshiang/simple_tls_server */
+#include <stddef.h>
 
-#define rsizeof(STRUCT, FIELD) sizeof(((STRUCT*)0)->FIELD)
-#define roffsetof(STRUCT, FIELD) ((size_t)((char*)(((STRUCT*)0) + 1) - (char*)(&(((STRUCT*)0)->FIELD) + 1)))
+/* https://hackmd.io/@oscarshiang/simple_tls_server */
 
 static SSL_CTX *g_cryptography_context = NULL;
 
@@ -44,8 +43,8 @@ static struct ExError cryptography_pump_to_ring(SSL *ssl, BIO *write_bio, struct
     while (true)
     {
         unsigned char i;
-        EXPRETF(ring_reserve(ring, ring->size + MIN_AVAILABLE_REQUEST_STREAM), EEF_CLOSE_LOG);
-        EXPRETF(ring_push_get(ring, MIN_AVAILABLE_REQUEST_STREAM, &value), EEF_CLOSE_LOG_DIE);
+        EXPRETF(ring_reserve(ring, ring->size + MIN_AVAILABLE_REQUEST_STREAM), EEF2_CLOSE_LOG);
+        EXPRETF(ring_push_get(ring, MIN_AVAILABLE_REQUEST_STREAM, &value), EEF2_CLOSE_LOG_DIE);
         for (i = 0; i < VALUE_PARTS; i++)
         {
             int signed_received;
@@ -62,7 +61,7 @@ static struct ExError cryptography_pump_to_ring(SSL *ssl, BIO *write_bio, struct
             else if (ssl != NULL)
             {
                 const int error = SSL_get_error(ssl, signed_received);
-                EXARET0(error == SSL_ERROR_ZERO_RETURN || error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_read() failed", EEF_CLOSE_LOG);
+                EXARET0(error == SSL_ERROR_ZERO_RETURN || error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_read() failed", EEF2_CLOSE_LOG);
                 if (error == SSL_ERROR_ZERO_RETURN) *connection_closed = true;
                 goto breakbreak;
             }
@@ -73,7 +72,7 @@ static struct ExError cryptography_pump_to_ring(SSL *ssl, BIO *write_bio, struct
         }
     }
     breakbreak:
-    EXPRETF(ring_unpush(ring, value_size(&value)), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_unpush(ring, value_size(&value)), EEF2_CLOSE_LOG_DIE);
     return EXOK;
 }
 
@@ -85,8 +84,8 @@ static struct ExError cryptography_create_phony_response(struct Client *client, 
     struct Response phony = ZERO_INIT;
     if (phony_size == 0) return EXOK;
     phony.stream_size = phony_size;
-    EXPRETF(ring_reserve(&client->response_queue, sizeof(struct Response)), EEF_CLOSE_LOG);
-    EXPRETF(ring_push_write(&client->response_queue, sizeof(struct Response), (const char*)&phony), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_reserve(&client->response_queue, sizeof(struct Response)), EEF2_CLOSE_LOG);
+    EXPRETF(ring_push_write(&client->response_queue, sizeof(struct Response), (const char*)&phony), EEF2_CLOSE_LOG_DIE);
     if (client->response_count == 0) client->response = phony;
     client->response_count++;
     return EXOK;
@@ -131,11 +130,11 @@ struct ExError cryptography_initialize(struct Client *client)
     bool bound = false;
 
     new_read_bio = BIO_new(BIO_s_mem());
-    EXAGOTO0(new_read_bio != NULL, "BIO_new() failed", EEF_CLOSE_LOG);
+    EXAGOTO0(new_read_bio != NULL, "BIO_new() failed", EEF2_CLOSE_LOG);
     new_write_bio = BIO_new(BIO_s_mem());
-    EXAGOTO0(new_write_bio != NULL, "BIO_new() failed", EEF_CLOSE_LOG);
+    EXAGOTO0(new_write_bio != NULL, "BIO_new() failed", EEF2_CLOSE_LOG);
     new_ssl = SSL_new(g_cryptography_context);
-    EXAGOTO0(new_ssl != NULL, "SSL_new() failed", EEF_CLOSE_LOG);
+    EXAGOTO0(new_ssl != NULL, "SSL_new() failed", EEF2_CLOSE_LOG);
     SSL_set_accept_state(new_ssl);
     SSL_set_bio(new_ssl, new_read_bio, new_write_bio);
     EXPRET(cryptography_pump_to_ring(NULL, new_write_bio, &client->response_stream, NULL));
@@ -153,6 +152,31 @@ struct ExError cryptography_initialize(struct Client *client)
     return exerror;
 }
 
+struct ExError cryptography_finalize(struct Client *client)
+{
+    const struct ExError EXOK = { OK };
+    size_t old_stream_size, new_stream_size, encrypted_value_size;
+    if (client->cryptography_state == CS_PENDING_HANDSHAKE || client->cryptography_state == CS_OPERATIONAL)
+    {
+        const int code = SSL_shutdown(client->ssl);
+        if (code <= 0) client->cryptography_state = CS_PENDING_SHUTDOWN;
+        if (code > 0) client->cryptography_state = CS_SHUTDOWN;
+        if (code == 0) { /*Do nothing */ }
+        if (code < 0)
+        {
+            const int error = SSL_get_error(client->ssl, code);
+            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_shutdown() failed", EEF2_CLOSE_LOG);
+        }
+
+        old_stream_size = client->response_stream.size;
+        EXPRET(cryptography_pump_to_ring(NULL, client->write_bio, &client->response_stream, NULL));
+        new_stream_size = client->response_stream.size;
+        encrypted_value_size = new_stream_size - old_stream_size;
+        EXPRET(cryptography_create_phony_response(client, encrypted_value_size));
+    }
+    return EXOK;
+}
+
 struct ExError cryptography_decrypt(struct Client *client, size_t old_request_stream_size)
 {
     const struct ExError EXOK = { OK };
@@ -163,24 +187,24 @@ struct ExError cryptography_decrypt(struct Client *client, size_t old_request_st
     /* Grab the latest encrypted data from request_stream and send it to SSL */
     location.offset = 0;
     location.size = client->request_stream.size - old_request_stream_size;
-    EXPRETF(ring_get(&client->request_stream, &location, true, &value), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(&client->request_stream, &location, true, &value), EEF2_CLOSE_LOG_DIE);
     for (i = 0; i < VALUE_PARTS; i++)
     {
         if (value.parts[i].size == 0) continue;
-        EXARET0(BIO_write(client->read_bio, value.parts[i].p, (int)value.parts[i].size) == (int)value.parts[i].size, "BIO_write() failed", EEF_CLOSE_LOG);
+        EXARET0(BIO_write(client->read_bio, value.parts[i].p, (int)value.parts[i].size) == (int)value.parts[i].size, "BIO_write() failed", EEF2_CLOSE_LOG);
     }
-    EXPRETF(ring_unpush(&client->request_stream, location.size), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_unpush(&client->request_stream, location.size), EEF2_CLOSE_LOG_DIE);
 
     /* Read decrypted data from SSL and place it in request stream */
     if (client->cryptography_state == CS_PENDING_HANDSHAKE)
     {
         const int code = SSL_accept(client->ssl);
         if (code > 0) client->cryptography_state = CS_OPERATIONAL;
-        else if (code == 0) client->cryptography_state = CS_SHUTDOWN;
-        else
+        if (code == 0) client->cryptography_state = CS_SHUTDOWN;
+        if (code < 0)
         {
             const int error = SSL_get_error(client->ssl, code);
-            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_accept() failed", EEF_CLOSE_LOG);
+            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_accept() failed", EEF2_CLOSE_LOG);
         }
     }
     if (client->cryptography_state == CS_OPERATIONAL)
@@ -197,7 +221,7 @@ struct ExError cryptography_decrypt(struct Client *client, size_t old_request_st
         else
         {
             const int error = SSL_get_error(client->ssl, code);
-            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_shutdown() failed", EEF_CLOSE_LOG);
+            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_shutdown() failed", EEF2_CLOSE_LOG);
         }
     }
 
@@ -221,7 +245,7 @@ struct ExError cryptography_encrypt(struct Client *client, const struct Response
     for (i = 0; i < VALUE_PARTS; i++)
     {
         if (response_stream->parts[i].size == 0) continue;
-        EXARET0(SSL_write(client->ssl, response_stream->parts[i].p, (int)response_stream->parts[i].size) == (int)response_stream->parts[i].size, "BIO_write() failed", EEF_CLOSE_LOG);
+        EXARET0(SSL_write(client->ssl, response_stream->parts[i].p, (int)response_stream->parts[i].size) == (int)response_stream->parts[i].size, "BIO_write() failed", EEF2_CLOSE_LOG);
     }
     old_stream_size = client->response_stream.size;
     EXPRET(cryptography_pump_to_ring(NULL, client->write_bio, &client->response_stream, NULL)); /* No phony request because  */
@@ -229,9 +253,9 @@ struct ExError cryptography_encrypt(struct Client *client, const struct Response
     encrypted_value_size = new_stream_size - old_stream_size;
 
     /* Correct the size of the response (this is where the clown show begins) */
-    location.offset = response->size + roffsetof(struct Response, stream_size);
-    location.size = rsizeof(struct Response, stream_size);
-    EXPRETF(ring_get(&client->response_queue, &location, true, &value), EEF_CLOSE_LOG_DIE);
+    location.offset = response->size + (sizeof(struct Response) - offsetof(struct Response, stream_size) - sizeof(response->stream_size));
+    location.size = sizeof(response->stream_size);
+    EXPRETF(ring_get(&client->response_queue, &location, true, &value), EEF2_CLOSE_LOG_DIE);
     value_write(&value, (const char*)&encrypted_value_size);
     if (client->response_count == 0) client->response.stream_size = encrypted_value_size;
     

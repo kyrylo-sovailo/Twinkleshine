@@ -45,8 +45,12 @@ void processor_module_finalize(void);
 struct ExError processor_process(const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 
-/* Creates fixed response fast */
-void processor_fixed(enum FixedResponse fixed, struct ConstValue *response);
+/* Creates fixed response (response + metadata + stream) */
+struct ExError processor_fixed(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+
+/* Creates fixed response very fast and without errors */
+void processor_fixed_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
 
 /* Frees the response once it is no longer needed */
 void processor_free(void);
