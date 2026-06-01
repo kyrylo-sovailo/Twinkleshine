@@ -34,6 +34,7 @@ source/extended_error.c
 source/random.c
 source/main.c
 source/tables.c
+source/time.c
 source/client.c
 source/ring.c
 source/value.c

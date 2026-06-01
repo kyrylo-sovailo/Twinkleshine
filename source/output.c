@@ -3,6 +3,7 @@
 #include "../include/constants.h"
 #include "../include/macro.h"
 #include "../include/memory.h"
+#include "../include/time.h"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -26,7 +27,7 @@ struct Log
     unsigned long int size;         /* Log size, bytes */
     char *path;                     /* Full file path */
 };
-static const char log_directory[] = "/var/log/twinkleshine/";           /* Log directory */
+static const char log_directory[] = "/home/kyrylo/Desktop/twinkleshine/";           /* Log directory */
 static const size_t log_directory_length = sizeof(log_directory) - 1;   /* Length if log directory */
 static struct Log g_logs[MAX_TOTAL_LOG_NUMBER]; /* Array of logs, oldest first */
 static unsigned int g_logs_size = 0;            /* Real number of files */
@@ -34,48 +35,46 @@ static unsigned long int g_logs_total_size = 0; /* Real sum of log file sizes */
 static bool g_catastrophic = false;             /* Initialization failed, fall back to catastrophic output */
 static FILE *g_file = NULL;                     /* Opened file */
 
-/* Transforms global calender to global time (aka timegm) */
-static time_t global_mktime(struct tm *global_calender, time_t probe)
+/* Calculates log start time by rounding down time */
+static time_t start(time_t global_time, struct tm *global_start_calender)
 {
-    struct tm *p_probe_global_calender, probe_global_calender;
-    struct tm *p_probe_local_calender, probe_local_calender;
-    time_t offset = 0;
-    p_probe_global_calender = gmtime(&probe); /* TODO: not thread-safe */
-    if (p_probe_global_calender != NULL) probe_global_calender = *p_probe_global_calender;
-    p_probe_local_calender = localtime(&probe);
-    if (p_probe_local_calender != NULL) probe_local_calender = *p_probe_local_calender;
-    if (p_probe_global_calender != NULL && p_probe_local_calender != NULL) offset = mktime(&probe_local_calender) - mktime(&probe_global_calender);
-    return mktime(global_calender) + offset;
+    struct tm global_calender = time_to_calender(global_time, true);
+    struct tm local_global_start_calender = ZERO_INIT;
+    local_global_start_calender.tm_year = global_calender.tm_year;
+    local_global_start_calender.tm_mon = global_calender.tm_mon;
+    local_global_start_calender.tm_mday = global_calender.tm_mday;
+    if (global_start_calender != NULL) *global_start_calender = local_global_start_calender;
+    return calender_to_time(&local_global_start_calender, global_time);
 }
 
 /* Deletes N oldest files */
 static void delete(unsigned int number)
 {
     unsigned int log_i;
-
     for (log_i = 0; log_i < number; log_i++)
     {
-        const struct Log zero = ZERO_INIT;
         (void)unlink(g_logs[log_i].path);
         count_free(g_logs[log_i].path, (strlen(g_logs[log_i].path) + 1) * sizeof(*g_logs[log_i].path));
-        g_logs[log_i] = zero;
         g_logs_total_size -= g_logs[log_i].size;
         g_logs_size--;
     }
+    
     memmove(&g_logs[0], &g_logs[number], g_logs_size * sizeof(*g_logs));
+    memset(&g_logs[g_logs_size], 0, number * sizeof(*g_logs));
 }
 
 /* Delete oldest logs until age and total size are satisfied */
 static void cleanup(time_t global_now)
 {
-    unsigned long int logs_total_size_copy = g_logs_total_size;
-    unsigned int log_i;
-
     /* Count how many files should be deleted to satisfy constraints */
-    for (log_i = 0; log_i < g_logs_size; log_i++)
+    unsigned int log_i = 0;
+    unsigned long int local_logs_total_size = g_logs_total_size;
+    while (log_i < g_logs_size)
     {
-        if ((global_now - g_logs[log_i].global_start) <= MAX_LOG_AGE && logs_total_size_copy <= MAX_TOTAL_LOG_SIZE) break;
-        logs_total_size_copy -= g_logs[log_i].size;
+        const bool should_delete = (global_now - g_logs[log_i].global_start) > MAX_LOG_AGE || local_logs_total_size > MAX_TOTAL_LOG_SIZE;
+        if (!should_delete) break;
+        local_logs_total_size -= g_logs[log_i].size;
+        log_i++;
     }
 
     /* Delete */
@@ -87,14 +86,21 @@ static void insert(time_t global_now, const struct Log *log)
 {
     unsigned int log_i;
 
-    /* Count how many logs is the new log older than */
-    for (log_i = 0; log_i < g_logs_size; log_i++)
+    /* Find the place for the new log by comparing it to the newest logs */
+    log_i = g_logs_size;
+    while (log_i > 0)
     {
-        if (log->global_start < g_logs[g_logs_size - log_i - 1].global_start) break; /* If new log is older than log i (backwards), break */
+        bool new_log_is_newer;
+        if (log->global_start > g_logs[log_i - 1].global_start) new_log_is_newer = true;
+        else if (log->global_start < g_logs[log_i - 1].global_start) new_log_is_newer = false;
+        else if (log->number > g_logs[log_i - 1].number) new_log_is_newer = true;
+        else new_log_is_newer = false;
+        if (!new_log_is_newer) break;
+        log_i--;
     }
 
-    /* Check if the log is logs are full and the new log is the oldest */
-    if (g_logs_size == sizeof(g_logs) / sizeof(*g_logs) && log_i == g_logs_size)
+    /* Check if the log is logs are full */
+    if (g_logs_size == MAX_TOTAL_LOG_NUMBER && log_i == 0)
     {
         (void)unlink(log->path);
         count_free(log->path, (strlen(log->path) + 1) * sizeof(*log->path));
@@ -102,14 +108,15 @@ static void insert(time_t global_now, const struct Log *log)
     }
 
     /* Check if the log is logs are full and the new log is not the oldest */
-    if (g_logs_size == sizeof(g_logs) / sizeof(*g_logs) && log_i != g_logs_size)
+    if (g_logs_size == MAX_TOTAL_LOG_NUMBER && log_i > 0)
     {
         delete(1);
+        log_i--;
     }
 
     /* Insert */
-    memmove(&g_logs[g_logs_size - log_i + 1], &g_logs[g_logs_size - log_i], log_i * sizeof(*g_logs));
-    g_logs[g_logs_size - log_i] = *log;
+    memmove(&g_logs[log_i + 1], &g_logs[log_i], (g_logs_size - log_i) * sizeof(*g_logs));
+    g_logs[log_i] = *log;
     g_logs_size++;
     g_logs_total_size += log->size;
 
@@ -119,7 +126,8 @@ static void insert(time_t global_now, const struct Log *log)
 
 void output_module_initialize(void)
 {
-    time_t global_now = time(NULL);
+    const time_t global_now = time(NULL);
+    const time_t global_start = start(global_now, NULL);
     DIR *directory;
     struct dirent *entry;
     
@@ -136,14 +144,14 @@ void output_module_initialize(void)
     for (entry = readdir(directory); entry != NULL; entry = readdir(directory))
     {
         const char *p;
-        struct tm global_start_calender;
+        struct tm global_start_calender = ZERO_INIT;
         char *next_p;
         struct Log new_log = ZERO_INIT;
         size_t name_length;
         struct stat status;
 
         /* Skip non-files */
-        if ((entry->d_type & 8 /*DT_REG*/) != 0) continue;
+        if ((entry->d_type & 8 /*DT_REG*/) == 0) continue;
         
         /* Parse date */
         p = entry->d_name;
@@ -156,8 +164,9 @@ void output_module_initialize(void)
         global_start_calender.tm_mday = (int)strtol(p, &next_p, 10);
         if (next_p == p || *next_p != '.') continue; /* Day read incorrectly, skip */
         p = next_p + 1;
-        new_log.global_start = global_mktime(&global_start_calender, global_now);
-        if (new_log.global_start == ((time_t)-1)) continue; /* Time read incorrectly, skip */
+        new_log.global_start = calender_to_time(&global_start_calender, global_now);
+        if (new_log.global_start == (time_t)-1) continue; /* Time read incorrectly, skip */
+        if (new_log.global_start > global_start) continue; /* Time read incorrectly, skip */
 
         /* Parse extension */
         if (strcmp(p, "log") != 0) continue; /* Extension incorrect, skip */
@@ -212,7 +221,7 @@ void output_module_finalize(void)
 void output_open(bool output_error)
 {
     time_t global_now, global_start;
-    struct tm *p_global_now_calender, global_now_calender, global_start_calender = ZERO_INIT;
+    struct tm global_start_calender;
     bool create_new_log = false;
     unsigned int create_new_log_number = 0;
     (void)output_error; /* No differentiation between output and error */
@@ -221,13 +230,7 @@ void output_open(bool output_error)
     
     /* Get time */
     global_now = time(NULL);
-    p_global_now_calender = gmtime(&global_now); /* TODO: not thread-safe */
-    if (p_global_now_calender == NULL) { g_catastrophic = true; return; }
-    global_now_calender = *p_global_now_calender;
-    global_start_calender.tm_year = global_now_calender.tm_year;
-    global_start_calender.tm_mon = global_now_calender.tm_mon;
-    global_start_calender.tm_mday = global_now_calender.tm_mday;
-    global_start = global_mktime(&global_start_calender, global_now);
+    global_start = start(global_now, &global_start_calender);
 
     /* Ensure that the last log is the right log */
     if (g_logs_size == 0 || g_logs[g_logs_size - 1].global_start != global_start)
