@@ -7,7 +7,6 @@ static struct ExError parser_parse_gopher_part(struct Parser *parser, struct Req
 {
     const struct ExError EXOK = { OK };
     const char *p;
-    if (parser->state == RPS_WAIT_METHOD_BEGIN) parser->state = RPS_WAIT_RESOURCE_END;
     for (p = part->p; p < part->p + part->size; p++, request->stream_size++)
     {
         const char c = *p;
@@ -40,6 +39,7 @@ struct ExError parser_parse_gopher(struct Parser *parser, struct Request *reques
     struct Value not_parsed;
     unsigned char i;
     
+    if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_RESOURCE_END;
     not_parsed_location.offset = request->stream_size;
     if (request_stream->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
     else not_parsed_location.size = request_stream->size - not_parsed_location.offset;

@@ -70,7 +70,7 @@ struct ExError server_process_data(struct Client *client, time_t now)
         client->request = zero;
         client->parser = zero2;
     }
-    else
+    else if (client->ssl != NULL)
     {
         EXPRET(cryptography_finalize(client));
     }

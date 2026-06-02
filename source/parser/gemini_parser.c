@@ -2,31 +2,41 @@
 #include "../../commonlib/include/error.h"
 #include "../../include/constants.h"
 #include "../../include/ring.h"
+#include "../../include/tables.h"
 
-static struct ExError parser_parse_gemini_part(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ValuePart *part)
+static struct ExError parser_parse_gemini_part(struct Parser *parser, struct Request *request, const struct ValuePart *part)
 {
     const struct ExError EXOK = { OK };
     const char *p;
-    if (parser->state == RPS_WAIT_METHOD_BEGIN) parser->state = RPS_WAIT_RESOURCE_END;
+    const char gemini[] = "gemini://";
     for (p = part->p; p < part->p + part->size; p++, request->stream_size++)
     {
         const char c = *p;
+        const unsigned char c_type = character_map[(unsigned char)c];
         switch (parser->state)
         {
-        case RPS_WAIT_RESOURCE_END:
-            if (c == '\r') parser->state = RPS_WAIT_FINAL_LINE_LF;
-            else if (c == '\n') { parser->tolerated_lf = true; parser->state = RPS_END; }
-            else
+        case RPS_WAIT_PROTOCOL_END:
+            if (c == gemini[request->protocol.size])
             {
-                request->resource.size++;
-                if (request->resource.size == 3)
-                {
-                    const char bom[3] = { (char)0xEF, (char)0xBB, (char)0xBF };
-                    struct Value value;
-                    EXPRETF(ring_get(request_stream, &request->resource, false, &value), EEF_CLOSE_LOG_DIE);
-                    EXARET0(!value_compare_mem(&value, bom, 3), "BOM sequence detected", EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
-                }
+                request->protocol.size++;
+                if (request->protocol.size == sizeof(gemini) - 1) { request->method.offset = sizeof(gemini) - 1; parser->state = RPS_WAIT_METHOD_END; }
             }
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
+            break;
+
+        case RPS_WAIT_METHOD_END:
+            if ((c_type & CM_DOMAIN) != 0) { request->method.size++; }
+            else if (c == '/') { request->resource.offset = request->stream_size; request->resource.size = 1; parser->state = RPS_WAIT_RESOURCE_END; }
+            else if (c == '\r') parser->state = RPS_WAIT_FINAL_LINE_LF;
+            else if (c == '\n') { parser->tolerated_lf = true; parser->state = RPS_END; }
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
+            break;
+
+        case RPS_WAIT_RESOURCE_END:
+            if ((c_type & CM_RESOURCE) != 0) { request->resource.size++; } /* Why did the spec mention BOM? BOM is automatically not a valid STD66 */
+            else if (c == '\r') parser->state = RPS_WAIT_FINAL_LINE_LF;
+            else if (c == '\n') { parser->tolerated_lf = true; parser->state = RPS_END; }
+            else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
 
         case RPS_WAIT_FINAL_LINE_LF:
@@ -49,13 +59,14 @@ struct ExError parser_parse_gemini(struct Parser *parser, struct Request *reques
     struct Value not_parsed;
     unsigned char i;
     
+    if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_PROTOCOL_END;
     not_parsed_location.offset = request->stream_size;
     if (request_stream->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
     else not_parsed_location.size = request_stream->size - not_parsed_location.offset;
     EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF_CLOSE_LOG_DIE);
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        EXPRET(parser_parse_gemini_part(parser, request, request_stream, &not_parsed.parts[i]));
+        EXPRET(parser_parse_gemini_part(parser, request, &not_parsed.parts[i]));
     }
     if (request_stream->size >= MAX_REQUEST_SIZE)
     {

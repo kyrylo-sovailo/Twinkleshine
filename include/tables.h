@@ -12,7 +12,8 @@ enum CharacterMap
     CM_RESOURCE = 8,
     CM_PROTOCOL = 16,
     CM_NAME = 32,
-    CM_VALUE = 64
+    CM_VALUE = 64,
+    CM_DOMAIN = 128
 };
 extern unsigned char character_map[256];
 

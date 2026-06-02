@@ -67,7 +67,7 @@ struct ExError processor_process_gopher(const struct Request *request, const str
     
     /* Actual logic */
     EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
-    if (value_compare_case_mem(&resource, "", strlen("")))
+    if (value_compare_case_mem(&resource, "", strlen("")) || value_compare_case_mem(&resource, "/", strlen("/")))
     {
         EXPRETF(string_print(&g_internal_buffer_one, gopher_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
         *response_stream = zero;

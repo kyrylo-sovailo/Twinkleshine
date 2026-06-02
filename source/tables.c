@@ -1054,4 +1054,10 @@ void tables_module_initialize(void)
 
     /* Allowed in value */
     for (c = ' '; c <= '~'; c++) character_map[(unsigned char)c] |= CM_VALUE; /*All visible ASCII and space*/
+
+    /* Allowed in domain name */
+    for (c = 'A'; c <= 'Z'; c++) character_map[(unsigned char)c] |= CM_DOMAIN;
+    for (c = 'a'; c <= 'z'; c++) character_map[(unsigned char)c] |= CM_DOMAIN;
+    for (c = '0'; c <= '9'; c++) character_map[(unsigned char)c] |= CM_DOMAIN;
+    for (p = "-."; *p != '\0'; p++) character_map[(unsigned char)*p] |= CM_DOMAIN;
 }

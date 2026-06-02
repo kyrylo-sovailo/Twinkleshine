@@ -298,6 +298,7 @@ struct ExError parser_parse_http(struct Parser *parser, struct Request *request,
     struct Value not_parsed;
     unsigned char i;
     
+    if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_METHOD_BEGIN;
     not_parsed_location.offset = request->stream_size;
     if (request_stream->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
     else not_parsed_location.size = request_stream->size - not_parsed_location.offset;

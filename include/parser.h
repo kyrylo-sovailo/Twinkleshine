@@ -23,7 +23,10 @@ struct Request
 /* Client's state machine */
 enum ParserState
 {
-    RPS_WAIT_METHOD_BEGIN = 0,
+    RPS_BEGIN = 0,
+    RPS_END,
+
+    RPS_WAIT_METHOD_BEGIN,
     RPS_WAIT_METHOD_END,
     RPS_WAIT_RESOURCE_BEGIN,
     RPS_WAIT_RESOURCE_END,
@@ -38,8 +41,7 @@ enum ParserState
     RPS_WAIT_VALUE_END,
 
     RPS_WAIT_FINAL_LINE_LF,
-    RPS_WAIT_CONTENT,
-    RPS_END
+    RPS_WAIT_CONTENT
 };
 
 /* Client's full state machine, complements Request */
