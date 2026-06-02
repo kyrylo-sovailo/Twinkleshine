@@ -1,10 +1,11 @@
-#include "../include/processor.h"
-#include "../commonlib/include/error.h"
-#include "../commonlib/include/string.h"
-#include "../include/parser.h"
-#include "../include/random.h"
-#include "../include/ring.h"
-#include "../include/tables.h"
+#include "../../include/processor.h"
+#include "../../commonlib/include/error.h"
+#include "../../commonlib/include/string.h"
+#include "../../include/parser.h"
+#include "../../include/random.h"
+#include "../../include/ring.h"
+#include "../../include/tables.h"
+#include "../../include/time.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -72,9 +73,6 @@ static struct CharBuffer g_http_fixed_max_request_header_size = ZERO_INIT;
 static struct CharBuffer g_http_fixed_max_request_content_size = ZERO_INIT;
 static struct CharBuffer g_http_fixed_max_incomplete_request_time = ZERO_INIT;
 
-/* Buffer for normal response */
-static struct CharBuffer g_header_buffer = ZERO_INIT, g_content_buffer = ZERO_INIT;
-
 static struct Error *processor_module_initialize_one(struct CharBuffer *buffer, const char *status, const char *explanation) NODISCARD;
 static struct Error *processor_module_initialize_one(struct CharBuffer *buffer, const char *status, const char *explanation)
 {
@@ -127,7 +125,7 @@ static struct Error *processor_push_metadata(const struct Request *request, cons
     return OK;
 }
 
-struct Error *processor_module_initialize(void)
+struct Error *processor_module_initialize_http(void)
 {
     PRET(processor_module_initialize_one(&g_http_fixed_max_clients,
         "503 Service Unavailable", "Maximum number of clients reached"));
@@ -150,7 +148,7 @@ struct Error *processor_module_initialize(void)
     return OK;
 }
 
-void processor_module_finalize(void)
+void processor_module_finalize_http(void)
 {
     string_finalize(&g_http_fixed_max_clients);
     string_finalize(&g_http_fixed_max_memory);
@@ -162,11 +160,11 @@ void processor_module_finalize(void)
     string_finalize(&g_http_fixed_max_request_content_size);
     string_finalize(&g_http_fixed_max_incomplete_request_time);
 
-    string_finalize(&g_header_buffer);
-    string_finalize(&g_content_buffer);
+    string_finalize(&g_internal_buffer_one);
+    string_finalize(&g_internal_buffer_two);
 }
 
-struct ExError processor_process(const struct Request *request, const struct Ring *request_stream,
+struct ExError processor_process_http(const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
 {
     const struct ExError EXOK = { OK };
@@ -179,71 +177,64 @@ struct ExError processor_process(const struct Request *request, const struct Rin
     EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
     if (!value_compare_case_mem(&method, "get", strlen("get")))
     {
-        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_print_append(&g_content_buffer, html_template_error_page, "405 Method Not Allowed", "Invalid method"), EEF_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_print(&g_header_buffer, http_template_error, "405 Method Not Allowed", (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
+        EXPRETF(string_copy_mem(&g_internal_buffer_two, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print_append(&g_internal_buffer_two, html_template_error_page, "405 Method Not Allowed", "Invalid method"), EEF_CLOSE_LOG);
+        EXPRETF(string_append_mem(&g_internal_buffer_two, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print(&g_internal_buffer_one, http_template_error, "405 Method Not Allowed", (unsigned int)g_internal_buffer_two.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
     }
     else if (value_compare_case_mem(&resource, "/", strlen("/")))
     {
-        time_t global_time;
-        struct tm *p_global_calender, global_calender = ZERO_INIT;
-        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_print_append(&g_content_buffer, html_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
-        global_time = time(NULL);
-        p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
-        if (p_global_calender != NULL) global_calender = *p_global_calender;
-        EXPRETF(string_print(&g_header_buffer, http_template_success, (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close",
+        const struct tm global_calender = time_to_calender(time(NULL), true);
+        EXPRETF(string_copy_mem(&g_internal_buffer_two, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print_append(&g_internal_buffer_two, html_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
+        EXPRETF(string_append_mem(&g_internal_buffer_two, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print(&g_internal_buffer_one, http_template_success, (unsigned int)g_internal_buffer_two.size, keep_alive ? "keep-alive" : "close",
             days_xxx[global_calender.tm_wday], global_calender.tm_mday, months_xxx[global_calender.tm_mon], 1900 + global_calender.tm_year,
             global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec), EEF_CLOSE_LOG);
     }
     else if (value_compare_case_mem(&resource, "/robots.txt", strlen("/robots.txt")))
     {
-        time_t global_time;
-        struct tm *p_global_calender, global_calender = ZERO_INIT;
+        const struct tm global_calender = time_to_calender(time(NULL), true);
         keep_alive = false;
-        EXPRETF(string_copy_mem(&g_content_buffer, txt_robots, sizeof(txt_robots) - 1), EEF_CLOSE_LOG);
-        global_time = time(NULL);
-        p_global_calender = gmtime(&global_time); /* TODO: not thread-safe btw */
-        if (p_global_calender != NULL) global_calender = *p_global_calender;
-        EXPRETF(string_print(&g_header_buffer, http_template_success, (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close",
+        EXPRETF(string_copy_mem(&g_internal_buffer_two, txt_robots, sizeof(txt_robots) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print(&g_internal_buffer_one, http_template_success, (unsigned int)g_internal_buffer_two.size, keep_alive ? "keep-alive" : "close",
             days_xxx[global_calender.tm_wday], global_calender.tm_mday, months_xxx[global_calender.tm_mon], 1900 + global_calender.tm_year,
             global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec), EEF_CLOSE_LOG);
     }
     else
     {
-        EXPRETF(string_copy_mem(&g_content_buffer, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_print_append(&g_content_buffer, html_template_error_page, "404 Not Found", "Invalid resource"), EEF_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_content_buffer, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_print(&g_header_buffer, http_template_error, "404 Not Found", (unsigned int)g_content_buffer.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
+        EXPRETF(string_copy_mem(&g_internal_buffer_two, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print_append(&g_internal_buffer_two, html_template_error_page, "404 Not Found", "Invalid resource"), EEF_CLOSE_LOG);
+        EXPRETF(string_append_mem(&g_internal_buffer_two, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_print(&g_internal_buffer_one, http_template_error, "404 Not Found", (unsigned int)g_internal_buffer_two.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
     }
+    *response_stream = zero;
+    response_stream->parts[0].p = g_internal_buffer_one.p;
+    response_stream->parts[0].size = g_internal_buffer_one.size;
+    response_stream->parts[1].p = g_internal_buffer_two.p;
+    response_stream->parts[1].size = g_internal_buffer_two.size;
 
     /* Response */
     processor_set_locations(request, response);
     response->keep_alive = keep_alive;
-    response->stream_size = g_header_buffer.size + g_content_buffer.size;
+    response->stream_size = g_internal_buffer_one.size + g_internal_buffer_two.size;
 
     /* Metadata */
     EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
     EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
     EXPRETF(processor_push_metadata(request, request_stream, response_queue), EEF_CLOSE_LOG_DIE);
 
-    /* Data */
-    *response_stream = zero;
-    response_stream->parts[0].p = g_header_buffer.p;
-    response_stream->parts[0].size = g_header_buffer.size;
-    response_stream->parts[1].p = g_content_buffer.p;
-    response_stream->parts[1].size = g_content_buffer.size;
-
     return EXOK;
 }
 
-struct ExError processor_fixed(enum FixedResponse fixed,
+struct ExError processor_fixed_http(enum FixedResponse fixed,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
 {
     const struct ExError EXOK = { OK };
     const struct Response zero = ZERO_INIT;
+
+    /* Actual logic */
+    processor_fixed_http_failsafe(fixed, response_stream);
 
     /* Response */
     *response = zero;
@@ -253,16 +244,13 @@ struct ExError processor_fixed(enum FixedResponse fixed,
     /* Metadata */
     EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
     EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
-
-    /* Data */
-    processor_fixed_failsafe(fixed, response_stream);
+    /* TODO: some metadata? */
 
     return EXOK;
 }
 
-void processor_fixed_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream)
+void processor_fixed_http_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream)
 {
-    /* Actual logic */
     const struct ConstValue zero = ZERO_INIT;
     struct CharBuffer *fixed_string;
     switch (fixed)
@@ -281,9 +269,4 @@ void processor_fixed_failsafe(enum FixedResponse fixed, struct ConstValue *respo
     *response_stream = zero;
     response_stream->parts[0].p = fixed_string->p;
     response_stream->parts[0].size = fixed_string->size;
-}
-
-void processor_free(void)
-{
-    /* Do nothing */
 }

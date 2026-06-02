@@ -1,15 +1,13 @@
-#include "../include/parser.h"
-#include "../commonlib/include/error.h"
-#include "../include/constants.h"
-#include "../include/error.h"
-#include "../include/processor.h"
-#include "../include/ring.h"
-#include "../include/tables.h"
+#include "../../include/parser.h"
+#include "../../commonlib/include/error.h"
+#include "../../include/constants.h"
+#include "../../include/ring.h"
+#include "../../include/tables.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-static struct ExError parser_parse_name_value(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
+static struct ExError parser_parse_http_name_value(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
 {
     const struct ExError EXOK = { OK };
     struct Value name;
@@ -46,7 +44,7 @@ static struct ExError parser_parse_name_value(struct Parser *parser, struct Requ
     return EXOK;
 }
 
-static struct ExError parser_parse_part(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ValuePart *part)
+static struct ExError parser_parse_http_part(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ValuePart *part)
 {
     const struct ExError EXOK = { OK };
     const char *p;
@@ -246,7 +244,7 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
-                EXPRET(parser_parse_name_value(parser, request, request_stream));
+                EXPRET(parser_parse_http_name_value(parser, request, request_stream));
                 if (c == '\r')
                 {
                     if (!parser->tolerated_cr) parser->state = RPS_WAIT_LINE_LF;
@@ -285,14 +283,15 @@ static struct ExError parser_parse_part(struct Parser *parser, struct Request *r
             }
             return EXOK; /* Breaking out of switch and for without incrementing offset */
 
-        default: /* RPS_END */
+        default: /* case RPS_END: */
+            EXARET0(request->keep_alive, "Received symbols after request end", EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             return EXOK; /* Breaking out of switch and for without incrementing offset */
         }
     }
     return EXOK;
 }
 
-struct ExError parser_parse(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
+struct ExError parser_parse_http(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
 {
     const struct ExError EXOK = { OK };
     struct ValueLocation not_parsed_location;
@@ -305,7 +304,7 @@ struct ExError parser_parse(struct Parser *parser, struct Request *request, cons
     EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF_CLOSE_LOG_DIE);
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        EXPRET(parser_parse_part(parser, request, request_stream, &not_parsed.parts[i]));
+        EXPRET(parser_parse_http_part(parser, request, request_stream, &not_parsed.parts[i]));
     }
     if (request_stream->size >= MAX_REQUEST_SIZE)
     {

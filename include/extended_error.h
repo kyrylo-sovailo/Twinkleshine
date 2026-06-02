@@ -18,6 +18,20 @@ enum ExErrorFlag
     PARTIAL_EEF_DIE         = 16    /* Total failure */
 };
 
+/* Identifies the fixed message that should be generated fast (does not interfere with ErrorAction) */
+enum FixedResponse
+{
+    FR_MAX_CLIENTS = 0 << 8,        /* 2.1 */
+    FR_MAX_MEMORY = 1 << 8,         /* 2.2 */
+    FR_MAX_UTILIZATION,             /* 2.3 */
+    FR_UNKNOWN,                     /* 4.1 */
+    FR_REQUEST_INVALID,             /* 4.1 */
+    FR_MAX_AVAILABLE_REQUEST_STREAM,/* 4.2 */
+    FR_MAX_REQUEST_HEADER_SIZE,     /* 4.3 */
+    FR_MAX_REQUEST_CONTENT_SIZE,    /* 4.3 */
+    FR_MAX_INCOMPLETE_REQUEST_TIME  /* 4.4 */
+};
+
 /*
 Note:
 It is extremely important to avoid recursion during TLS shutdown 

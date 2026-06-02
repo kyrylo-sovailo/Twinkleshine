@@ -27,7 +27,7 @@ struct Log
     unsigned long int size;         /* Log size, bytes */
     char *path;                     /* Full file path */
 };
-static const char log_directory[] = "/home/kyrylo/Desktop/twinkleshine/";           /* Log directory */
+static const char log_directory[] = "/var/log/twinkleshine/";           /* Log directory */
 static const size_t log_directory_length = sizeof(log_directory) - 1;   /* Length if log directory */
 static struct Log g_logs[MAX_TOTAL_LOG_NUMBER]; /* Array of logs, oldest first */
 static unsigned int g_logs_size = 0;            /* Real number of files */
@@ -328,6 +328,7 @@ void output_print_client(bool error_output, const struct Client *client)
 {
     char address[(INET6_ADDRSTRLEN > INET_ADDRSTRLEN) ? INET6_ADDRSTRLEN : INET_ADDRSTRLEN];
     unsigned short port;
+    const char *protocol;
     if (client->address.ss_family == AF_INET6)
     {
         const struct sockaddr_in6 *cast = (const struct sockaddr_in6*)&client->address;
@@ -349,5 +350,10 @@ void output_print_client(bool error_output, const struct Client *client)
         inet_ntop(AF_INET, &cast->sin_addr, address, sizeof(address));
         port = ntohs(cast->sin_port);
     }
-    output_print(error_output, "client %s:%u:\n", address, (unsigned int)port);
+    if (client->type == CT_HTTP && client->ssl == NULL) protocol = "HTTP";
+    else if (client->type == CT_HTTP && client->ssl != NULL) protocol = "HTTPS";
+    else if (client->type == CT_GOPHER) protocol = "Gopher";
+    else if (client->type == CT_FINGER) protocol = "Finger";
+    else /* if (client->type == CT_GEMINI) */ protocol = "Gemini";
+    output_print(error_output, "client %s:%u (%s):\n", address, (unsigned int)port, protocol);
 }

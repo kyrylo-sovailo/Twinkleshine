@@ -10,20 +10,6 @@ struct Request;
 struct Response;
 struct Ring;
 
-/* Identifies the fixed message that should be generated fast (does not interfere with ErrorAction) */
-enum FixedResponse
-{
-    FR_MAX_CLIENTS = 0 << 8,        /* 2.1 */
-    FR_MAX_MEMORY = 1 << 8,         /* 2.2 */
-    FR_MAX_UTILIZATION,             /* 2.3 */
-    FR_UNKNOWN,                     /* 4.1 */
-    FR_REQUEST_INVALID,             /* 4.1 */
-    FR_MAX_AVAILABLE_REQUEST_STREAM,/* 4.2 */
-    FR_MAX_REQUEST_HEADER_SIZE,     /* 4.3 */
-    FR_MAX_REQUEST_CONTENT_SIZE,    /* 4.3 */
-    FR_MAX_INCOMPLETE_REQUEST_TIME  /* 4.4 */
-};
-
 /* Important meta-information of a response, which doesn't include the response itself */
 struct Response
 {
@@ -42,17 +28,43 @@ struct Error *processor_module_initialize(void);
 void processor_module_finalize(void);
 
 /* Processes request and creates response (response + metadata + stream) */
-struct ExError processor_process(const struct Request *request, const struct Ring *request_stream,
+struct ExError processor_process(int type, const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 
 /* Creates fixed response (response + metadata + stream) */
-struct ExError processor_fixed(enum FixedResponse fixed,
+struct ExError processor_fixed(int type, enum FixedResponse fixed,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 
 /* Creates fixed response very fast and without errors */
-void processor_fixed_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
+void processor_fixed_failsafe(int type, enum FixedResponse fixed, struct ConstValue *response_stream);
 
 /* Frees the response once it is no longer needed */
 void processor_free(void);
+
+/* Internal */
+struct Error *processor_module_initialize_http(void);
+void processor_module_finalize_http(void);
+struct ExError processor_process_http(const struct Request *request, const struct Ring *request_stream,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_process_gopher(const struct Request *request, const struct Ring *request_stream,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_process_finger(const struct Request *request, const struct Ring *request_stream,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_process_gemini(const struct Request *request, const struct Ring *request_stream,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_fixed_http(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_fixed_gopher(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_fixed_finger(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_fixed_gemini(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+void processor_fixed_http_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
+void processor_fixed_gopher_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
+void processor_fixed_finger_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
+void processor_fixed_gemini_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
+extern struct CharBuffer g_internal_buffer_one;
+extern struct CharBuffer g_internal_buffer_two;
 
 #endif

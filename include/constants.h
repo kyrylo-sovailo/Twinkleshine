@@ -98,8 +98,11 @@ Logging
 Socket allocation
 */
 
-#define ACCEPTING_SOCKETS 4
-#define ACCEPTING_SOCKET_IS_HTTP(INDEX)  ((INDEX) >= 0 && (INDEX) < 2)
-#define ACCEPTING_SOCKET_IS_HTTPS(INDEX) ((INDEX) >= 2 && (INDEX) < 4)
+#define ACCEPTING_SOCKETS 10
+#define ACCEPTING_SOCKET_IS_HTTP(INDEX)   (                (INDEX) < 2)
+#define ACCEPTING_SOCKET_IS_HTTPS(INDEX)  ((INDEX) >= 2 && (INDEX) < 4)
+#define ACCEPTING_SOCKET_IS_GOPHER(INDEX) ((INDEX) >= 4 && (INDEX) < 6)
+#define ACCEPTING_SOCKET_IS_FINGER(INDEX) ((INDEX) >= 6 && (INDEX) < 8)
+#define ACCEPTING_SOCKET_IS_GEMINI(INDEX) ((INDEX) >= 8               )
 
 #endif

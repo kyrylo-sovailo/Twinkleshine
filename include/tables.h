@@ -4,6 +4,8 @@
 enum CharacterMap
 {
     CM_NONE = 0,
+
+    /* HTTP-related */
     CM_SPACE = 1,
     CM_NEWLINE = 2,
     CM_METHOD = 4,

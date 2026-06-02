@@ -79,7 +79,7 @@ static struct ExError server_process_client_round_recovery(struct Client *client
     const struct ExError EXOK = { OK };
     struct Response response;
     struct ConstValue response_stream;
-    EXPRET(processor_fixed(fixed, &response, &client->response_queue, &response_stream));
+    EXPRET(processor_fixed(client->type, fixed, &response, &client->response_queue, &response_stream));
     if (client->response_count == 0) client->response = response;
     EXPRET(cryptography_encrypt(client, &response, &response_stream));
     client->response_count++;
@@ -216,7 +216,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
         {
             struct ConstValue response;
             unsigned char i;
-            processor_fixed_failsafe((enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
+            processor_fixed_failsafe(client->type, (enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
             for (i = 0; i < VALUE_PARTS; i++)
             {
                 if (response.parts[i].size > 0) (void)send(poll->fd, response.parts[i].p, response.parts[i].size, 0);

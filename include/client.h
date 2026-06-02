@@ -10,6 +10,14 @@
 #include <sys/socket.h>
 #include <time.h>
 
+enum ClientType
+{
+    CT_HTTP,
+    CT_GOPHER,
+    CT_FINGER,
+    CT_GEMINI
+};
+
 enum CryptographyState
 {
     CS_PENDING_HANDSHAKE = 0,   /* Handshake in progress */
@@ -20,6 +28,8 @@ enum CryptographyState
 
 struct Client
 {
+    enum ClientType type;
+
     /* Input */
     struct Ring request_stream;                 /* Buffer for incoming data, contains many request contents */
     struct Request request;                     /* Metadata of the first request in request_stream */

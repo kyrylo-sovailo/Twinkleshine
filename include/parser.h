@@ -2,8 +2,8 @@
 #define PARSER_H
 
 #include "../commonlib/include/macro.h"
-#include "value.h"
 #include "extended_error.h"
+#include "value.h"
 
 struct Ring;
 
@@ -53,6 +53,10 @@ struct Parser
 };
 
 /* Feed buffer to parser */
-struct ExError parser_parse(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse(int type, struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse_http(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse_gopher(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse_finger(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse_gemini(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 
 #endif

@@ -25,7 +25,7 @@ struct ExError server_process_data(struct Client *client, time_t now)
     struct ConstValue response_stream;
 
     /* Parse request, quit if the request is incomplete */
-    EXPRET(parser_parse(&client->parser, &client->request, &client->request_stream));
+    EXPRET(parser_parse(client->type, &client->parser, &client->request, &client->request_stream));
     if (client->parser.state != RPS_END) return EXOK;
     client->last_request_complete = now;
 
@@ -40,7 +40,7 @@ struct ExError server_process_data(struct Client *client, time_t now)
     }
 
     /* Generate response */
-    EXPRET(processor_process(&client->request, &client->request_stream, &response, &client->response_queue, &response_stream)); /* TODO: response queue is the odd one out */
+    EXPRET(processor_process(client->type, &client->request, &client->request_stream, &response, &client->response_queue, &response_stream)); /* TODO: response queue is the odd one out */
     EXPRETF(ring_pop(&client->request_stream, client->request.stream_size), EEF_CLOSE_LOG_DIE);
     if (client->response_count == 0) client->response = response;
 

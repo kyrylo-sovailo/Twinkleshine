@@ -28,19 +28,27 @@ source/server/send.c
 source/server/process.c
 source/server/low_level.c
 source/server/accept.c
-source/parser.c
 source/cryptography.c
+source/parser/parser.c
+source/parser/gopher_parser.c
+source/parser/http_parser.c
+source/parser/finger_parser.c
+source/parser/gemini_parser.c
 source/extended_error.c
+source/time.c
 source/random.c
 source/main.c
 source/tables.c
-source/time.c
 source/client.c
 source/ring.c
+source/processor/gemini_processor.c
+source/processor/http_processor.c
+source/processor/finger_processor.c
+source/processor/gopher_processor.c
+source/processor/processor.c
 source/value.c
 source/memory.c
 source/output.c
-source/processor.c
 )
 
 # Define macros
