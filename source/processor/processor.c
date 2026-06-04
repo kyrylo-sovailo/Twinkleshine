@@ -70,7 +70,7 @@ static struct Error *processor_process_generic_footer(int type, struct Processor
     if (type == CT_GOPHER) name = "Gopher"; else { names[i] = "Gopher"; references[i] = "gopher://" DOMAIN_NAME GOPHER_PORT_STRING; i++; }
     if (type == CT_FINGER) name = "Finger"; else { names[i] = "Finger"; references[i] = "finger://" DOMAIN_NAME FINGER_PORT_STRING; i++; }
     if (type == CT_GEMINI) name = "Gemini"; else { names[i] = "Gemini"; references[i] = "gemini://" DOMAIN_NAME GEMINI_PORT_STRING; i++; }
-    if (type == CT_NEX)    name = "Nex";    else { names[i] = "Nex";    references[i] = "nex://"    DOMAIN_NAME GEMINI_PORT_STRING; i++; }
+    if (type == CT_NEX)    name = "Nex";    else { names[i] = "Nex";    references[i] = "nex://"    DOMAIN_NAME NEX_PORT_STRING;    i++; }
     PRET(processor_print(type, context, ES_NORMAL, NULL, "You are reading the %s version of this page. This page is also available through %s, %s, %s, and %s:", name, names[0], names[1], names[2], names[3]));
     for (i = 0; i < sizeof(names) / sizeof(*names); i++)
     {

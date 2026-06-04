@@ -9,6 +9,7 @@
 #include <string.h>
 
 #define CRLF "\r\n"
+#define ENDLINE "\r\n" /* Specification says CR is optional */
 
 struct Error *processor_print_gemini(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
@@ -23,7 +24,7 @@ struct Error *processor_print_gemini(struct ProcessorPrintContext *context, enum
     {
     case ES_INITIALIZE: PRET(string_copy_mem(context->one, STRING_STRLEN("20 text/gemini" CRLF))); context->two->size = 0; return OK;
     case ES_FINALIZE: return OK;
-    case ES_NORMAL: if (previous_is_normal) PRET(string_append_mem(context->one, STRING_STRLEN(CRLF))); break;
+    case ES_NORMAL: if (previous_is_normal) PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE))); break;
     case ES_ITEMIZE: PRET(string_append_mem(context->one, STRING_STRLEN("* "))); break;
     case ES_ENUMERATION: PRET(string_print_append(context->one, "%u. ", context->list_index)); break;
     case ES_QUOTE: PRET(string_append_mem(context->one, STRING_STRLEN("> "))); break;
@@ -39,7 +40,7 @@ struct Error *processor_print_gemini(struct ProcessorPrintContext *context, enum
     PRET(string_vprint_append(context->one, format, va));
 
     /* Suffix */
-    PRET(string_append_mem(context->one, STRING_STRLEN(CRLF)));
+    PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
 
     return OK;
 }

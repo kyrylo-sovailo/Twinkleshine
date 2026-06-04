@@ -10,25 +10,28 @@
 #include <string.h>
 #include <time.h>
 
+#define CRLF "\r\n"
+#define ENDLINE "\n" /* Is there specification? */
+
 /* Static pieces of text */
 static const char http_template_error[] =
-"HTTP/1.1 %s\r\n"
-"Server: Twinkleshine\r\n"
-"Cache-Control: no-cache, no-store, must-revalidate\r\n"
-"Content-Type: text/html; charset=UTF-8\r\n"
-"Content-Length: %u\r\n"
-"Connection: %s\r\n"
-"\r\n";
+"HTTP/1.1 %s" CRLF
+"Server: Twinkleshine" CRLF
+"Cache-Control: no-cache, no-store, must-revalidate" CRLF
+"Content-Type: text/html; charset=UTF-8" CRLF
+"Content-Length: %u" CRLF
+"Connection: %s" CRLF
+"" CRLF;
 
 static const char http_template_success[] = 
-"HTTP/1.1 200 OK\r\n"
-"Server: Twinkleshine\r\n"
-"Cache-Control: no-cache, no-store, must-revalidate\r\n"
-"Content-Type: text/html; charset=UTF-8\r\n"
-"Content-Length: %u\r\n"
-"Connection: %s\r\n"
-"Date: %s, %02d %s %d %02d:%02d:%02d GMT\r\n"
-"\r\n";
+"HTTP/1.1 200 OK" CRLF
+"Server: Twinkleshine" CRLF
+"Cache-Control: no-cache, no-store, must-revalidate" CRLF
+"Content-Type: text/html; charset=UTF-8" CRLF
+"Content-Length: %u" CRLF
+"Connection: %s" CRLF
+"Date: %s, %02d %s %d %02d:%02d:%02d GMT" CRLF
+"" CRLF;
 
 static const char html_template_error_page[] =
 "<p>%s</p>\n"
@@ -119,8 +122,8 @@ void processor_module_finalize_http(void)
 struct Error *processor_print_http(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
     /* Prefix */
-    if (context->previous_style == ES_ITEMIZE && style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("</ol>\n"))); }
-    if (context->previous_style == ES_ENUMERATION && style != ES_ENUMERATION) { PRET(string_append_mem(context->two, STRING_STRLEN("</ul>\n"))); }
+    if (context->previous_style == ES_ITEMIZE && style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("</ol>" ENDLINE))); }
+    if (context->previous_style == ES_ENUMERATION && style != ES_ENUMERATION) { PRET(string_append_mem(context->two, STRING_STRLEN("</ul>" ENDLINE))); }
     context->previous_style = style;
     switch (style)
     {
@@ -145,23 +148,23 @@ struct Error *processor_print_http(struct ProcessorPrintContext *context, enum E
     }
     case ES_ITEMIZE:
     {
-        if (context->previous_style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("<ul>\n"))); }
+        if (context->previous_style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("<ul>" ENDLINE))); }
         PRET(string_append_mem(context->two, STRING_STRLEN("<li>")));
         break;
     }
     case ES_ENUMERATION:
     {
-        if (context->previous_style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("<ol>\n"))); }
+        if (context->previous_style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("<ol>" ENDLINE))); }
         PRET(string_append_mem(context->two, STRING_STRLEN("<li>")));
         break;
     }
-    case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("<blockquote>\n<p>"))); break;
+    case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("<blockquote>" ENDLINE "<p>"))); break;
     case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("<h3>"))); break;
     case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("<h2>"))); break;
     case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("<h1>"))); break;
-    case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("<header>\n<h1>"))); break;
-    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p>\n<a href=\"/%s\">", resource)); break;
-    case ES_EXTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p>\n<a href=\"%s\">", resource)); break;
+    case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("<header>" ENDLINE "<h1>"))); break;
+    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p><a href=\"/%s\">", resource)); break;
+    case ES_EXTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p><a href=\"%s\">", resource)); break;
     }
     
     /* Text */
@@ -170,15 +173,15 @@ struct Error *processor_print_http(struct ProcessorPrintContext *context, enum E
     /* Suffix */
     switch (style)
     {
-    case ES_NORMAL: PRET(string_append_mem(context->two, STRING_STRLEN("</p>\n"))); break;
+    case ES_NORMAL: PRET(string_append_mem(context->two, STRING_STRLEN("</p>" ENDLINE))); break;
     case ES_ITEMIZE:
-    case ES_ENUMERATION: PRET(string_append_mem(context->two, STRING_STRLEN("</li>\n"))); break;
-    case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("</p>\n</blockquote>\n"))); break;
-    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("</h3>\n"))); break;
-    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("</h2>\n"))); break;
-    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>\n"))); break;
-    case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>\n</header>\n"))); break;
-    default: PRET(string_append_mem(context->two, STRING_STRLEN("</p>\n</a>\n"))); break; /* ES_INTERNAL_REFERENCE, ES_EXTERNAL_REFERENCE */
+    case ES_ENUMERATION: PRET(string_append_mem(context->two, STRING_STRLEN("</li>" ENDLINE))); break;
+    case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("</p>" ENDLINE "</blockquote>" ENDLINE))); break;
+    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("</h3>" ENDLINE))); break;
+    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("</h2>" ENDLINE))); break;
+    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>" ENDLINE))); break;
+    case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>" ENDLINE "</header>" ENDLINE))); break;
+    default: PRET(string_append_mem(context->two, STRING_STRLEN("</p></a>" ENDLINE))); break; /* ES_INTERNAL_REFERENCE, ES_EXTERNAL_REFERENCE */
     }
     return OK;
 }
