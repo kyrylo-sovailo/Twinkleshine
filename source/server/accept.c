@@ -20,7 +20,8 @@ static void server_send_low_resources(unsigned char index, struct Client *client
     if (max_utilization) fixed = FR_MAX_UTILIZATION;
     if (ACCEPTING_SOCKET_IS_HTTP(index)) processor_fixed_failsafe(CT_HTTP, fixed, &response_stream);
     else if (ACCEPTING_SOCKET_IS_GOPHER(index)) processor_fixed_failsafe(CT_GOPHER, fixed, &response_stream);
-    else /* if (ACCEPTING_SOCKET_IS_FINGER(index)) */ processor_fixed_failsafe(CT_FINGER, fixed, &response_stream);
+    else if (ACCEPTING_SOCKET_IS_FINGER(index)) processor_fixed_failsafe(CT_FINGER, fixed, &response_stream);
+    else /* if (ACCEPTING_SOCKET_IS_NEX(index)) */ processor_fixed_failsafe(CT_NEX, fixed, &response_stream);
     PGOTO(server_send_value(&response_stream, fd, &flags));
     AGOTO((flags & CF_SATURATED) == 0);
     return;
@@ -81,10 +82,15 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
         new_client.type = CT_FINGER;
         new_client.cryptography_state = CS_OPERATIONAL;
     }
-    else /* else if (ACCEPTING_SOCKET_IS_GEMINI(index)) */
+    else if (ACCEPTING_SOCKET_IS_GEMINI(index))
     {
         new_client.type = CT_GEMINI;
         EXPGOTO(cryptography_initialize(&new_client));
+    }
+    else /* if (ACCEPTING_SOCKET_IS_NEX(index)) */
+    {
+        new_client.type = CT_NEX;
+        new_client.cryptography_state = CS_OPERATIONAL;
     }
 
     EXPGOTOF(polls_append(polls, &new_poll, 1), EEF_CLOSE_LOG);

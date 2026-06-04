@@ -15,7 +15,8 @@ enum ClientType
     CT_HTTP,
     CT_GOPHER,
     CT_FINGER,
-    CT_GEMINI
+    CT_GEMINI,
+    CT_NEX
 };
 
 enum CryptographyState

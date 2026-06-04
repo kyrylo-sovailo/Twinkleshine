@@ -83,7 +83,7 @@ void value_trim(struct Value *a)
     for (i = 0;;)
     {
         char c;
-        while (a->parts[i].size == 0) { i++; if (i == VALUE_PARTS) return; } /* No non-spaces found, go to second part or exit */
+        while (a->parts[i].size == 0) { i++; if (i == VALUE_PARTS) return; } /* No non-spaces found, go to next part or exit */
         c = *a->parts[i].p;
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break; /*TODO: use character map from request_processor.c */
         a->parts[i].p++;
@@ -94,9 +94,34 @@ void value_trim(struct Value *a)
     for (i = VALUE_PARTS - 1;;)
     {
         char c;
-        while (a->parts[i].size == 0) i--; /* No non-spaces found, go to first part or exit (no boundary check because it must find non-space) */
+        while (a->parts[i].size == 0) i--; /* No non-spaces found, go to previous part or exit (no boundary check because it must find non-space) */
         c = a->parts[i].p[a->parts[i].size - 1];
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break;
+        a->parts[i].size--;
+    }
+}
+
+void value_trim_slash(struct Value *a)
+{
+    /* Delete beginning slashes */
+    unsigned char i;
+    for (i = 0;;)
+    {
+        char c;
+        while (a->parts[i].size == 0) { i++; if (i == VALUE_PARTS) return; } /* No non-slashes found, go to next part or exit */
+        c = *a->parts[i].p;
+        if (c != '/') break;
+        a->parts[i].p++;
+        a->parts[i].size--;
+    }
+    
+    /* Delete ending slashes */
+    for (i = VALUE_PARTS - 1;;)
+    {
+        char c;
+        while (a->parts[i].size == 0) i--; /* No non-slashes found, go to previous part or exit (no boundary check because it must find non-slash) */
+        c = a->parts[i].p[a->parts[i].size - 1];
+        if (c != '/') break;
         a->parts[i].size--;
     }
 }

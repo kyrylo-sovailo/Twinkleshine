@@ -91,7 +91,7 @@ struct Error *server_initialize(struct PollBuffer *polls)
 {
     const struct pollfd zero = { -1, POLLIN, 0 };
     const char *modes[] = { "IPv6+IPv4", "IPv6*", "IPv6", "IPv4" };
-    const char **http_mode, **https_mode, **gopher_mode, **finger_mode, **gemini_mode;
+    const char **http_mode, **https_mode, **gopher_mode, **finger_mode, **gemini_mode, **nex_mode;
 
     ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
     
@@ -115,6 +115,10 @@ struct Error *server_initialize(struct PollBuffer *polls)
     PRET(server_create_socket_pair(polls, &gemini_mode, GEMINI_PORT));
     for (;polls->size < 10;) { PRET(polls_append(polls, &zero, 1)); }
 
+    nex_mode = &modes[0];
+    PRET(server_create_socket_pair(polls, &nex_mode, NEX_PORT));
+    for (;polls->size < 12;) { PRET(polls_append(polls, &zero, 1)); }
+
     output_open(false);
     output_print(false, "Twinkleshine started\n");
     output_print(false, "HTTP   mode: %s:%d\n", *http_mode, HTTP_PORT);
@@ -122,6 +126,7 @@ struct Error *server_initialize(struct PollBuffer *polls)
     output_print(false, "Gopher mode: %s:%d\n", *gopher_mode, GOPHER_PORT);
     output_print(false, "Finger mode: %s:%d\n", *finger_mode, FINGER_PORT);
     output_print(false, "Gemini mode: %s:%d\n", *gemini_mode, GEMINI_PORT);
+    output_print(false, "Nex    mode: %s:%d\n", *nex_mode, NEX_PORT);
     output_print_time(false);
     output_print(false, "\n");
     output_close(false);

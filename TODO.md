@@ -10,3 +10,7 @@
  - [ ] Ensure debian packages work
  - [ ] Implement systemd scripts
  - [X] Implement logging of normal non-error messages (priority: high)
+ - [X] Implement Nex
+ - [ ] Implement Guppy
+ - [ ] Limit line length to N symbols
+ - [ ] Standartize empty line generation in non-HTTP protocols

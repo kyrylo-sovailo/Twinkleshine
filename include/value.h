@@ -55,6 +55,9 @@ bool value_parse_comma(struct Value *a, struct Value *result) NODISCARD;
 /* Trims a value of spaces */
 void value_trim(struct Value *a);
 
+/* Trims a value of slashes */
+void value_trim_slash(struct Value *a);
+
 /* Converts string to unsigned integer value */
 bool value_to_uint(const struct Value *a, unsigned int *result) NODISCARD;
 

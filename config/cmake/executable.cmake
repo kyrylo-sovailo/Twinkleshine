@@ -45,6 +45,7 @@ source/processor/gemini_processor.c
 source/processor/http_processor.c
 source/processor/finger_processor.c
 source/processor/gopher_processor.c
+source/processor/nex_processor.c
 source/processor/processor.c
 source/value.c
 source/memory.c

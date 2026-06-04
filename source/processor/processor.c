@@ -50,7 +50,8 @@ static struct Error *processor_print(int type, struct ProcessorPrintContext *con
     case CT_HTTP:   PGOTO(processor_print_http(context, style, resource, format, va));      break;
     case CT_GOPHER: PGOTO(processor_print_gopher(context, style, resource, format, va));    break;
     case CT_FINGER: PGOTO(processor_print_finger(context, style, resource, format, va));    break;
-    default:        PGOTO(processor_print_gemini(context, style, resource, format, va));    break; /* CT_GEMINI */
+    case CT_GEMINI: PGOTO(processor_print_gemini(context, style, resource, format, va));    break;
+    default:        PGOTO(processor_print_nex(context, style, resource, format, va));       break; /* CT_NEX */
     }
     error = OK;
     failure:
@@ -62,24 +63,25 @@ static struct Error *processor_process_generic_footer(int type, struct Processor
 static struct Error *processor_process_generic_footer(int type, struct ProcessorPrintContext *context, const char *resource)
 {
     const char *name;
-    const char *names[3], *references[3];
+    const char *names[4], *references[4];
     unsigned char i = 0;
     PRET(processor_print(type, context, ES_LARGE, NULL, "Footnote"));
     if (type == CT_HTTP)   name = "HTTP";   else { names[i] = "HTTP";   references[i] = "http://"   DOMAIN_NAME HTTP_PORT_STRING;   i++; }
     if (type == CT_GOPHER) name = "Gopher"; else { names[i] = "Gopher"; references[i] = "gopher://" DOMAIN_NAME GOPHER_PORT_STRING; i++; }
     if (type == CT_FINGER) name = "Finger"; else { names[i] = "Finger"; references[i] = "finger://" DOMAIN_NAME FINGER_PORT_STRING; i++; }
     if (type == CT_GEMINI) name = "Gemini"; else { names[i] = "Gemini"; references[i] = "gemini://" DOMAIN_NAME GEMINI_PORT_STRING; i++; }
-    PRET(processor_print(type, context, ES_NORMAL, NULL, "You are reading the %s version of this page. This page is also available through %s, %s and %s:", name, names[0], names[1], names[2]));
-    for (i = 0; i < 3; i++)
+    if (type == CT_NEX)    name = "Nex";    else { names[i] = "Gemini"; references[i] = "nex://"    DOMAIN_NAME GEMINI_PORT_STRING; i++; }
+    PRET(processor_print(type, context, ES_NORMAL, NULL, "You are reading the %s version of this page. This page is also available through %s, %s, %s, and %s:", name, names[0], names[1], names[2], names[3]));
+    for (i = 0; i < sizeof(names) / sizeof(*names); i++)
     {
-        char reference[32];
+        char reference[64];
         strcpy(reference, references[i]);
         if (resource != NULL) strcat(reference, resource);
         PRET(processor_print(type, context, ES_EXTERNAL_REFERENCE, reference, "%s", names[i]));
     }
     PRET(processor_print(type, context, ES_INTERNAL_REFERENCE, "smallnet", "What are those and why can't I open them"));
     if (resource != NULL) { PRET(processor_print(type, context, ES_INTERNAL_REFERENCE, "", "Back to the index page")); }
-    PRET(processor_print(type, context, ES_NORMAL, NULL, "Updated: 4 May 2026"));
+    PRET(processor_print(type, context, ES_NORMAL, NULL, "Updated: 4 June 2026"));
     return OK;
 }
 
@@ -87,14 +89,10 @@ static struct Error *processor_process_generic(int type, const struct Value *res
 static struct Error *processor_process_generic(int type, const struct Value *resource, const struct Request *request, bool *invalid_resource)
 {
     struct ProcessorPrintContext context = { &g_internal_buffer_one, &g_internal_buffer_two, request, 0, 0 };
-    struct Value normalized_resource = *resource;
-    unsigned char i;
-    for (i = 0; i < VALUE_PARTS; i++)
-    {
-        if (normalized_resource.parts[i].size > 0 && *normalized_resource.parts[i].p == '/') { normalized_resource.parts[i].p++; normalized_resource.parts[i].size--; break; }
-    }
+    struct Value trimmed_resource = *resource;
+    value_trim_slash(&trimmed_resource);
 
-    if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("")))
+    if (value_compare_case_mem(&trimmed_resource, STRING_STRLEN("")))
     {
         /* Index page */
         PRET(processor_print(type, &context, ES_INITIALIZE, NULL, NULL));
@@ -109,7 +107,7 @@ static struct Error *processor_process_generic(int type, const struct Value *res
         PRET(processor_process_generic_footer(type, &context, NULL));
         PRET(processor_print(type, &context, ES_FINALIZE, NULL, NULL));
     }
-    else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("about")))
+    else if (value_compare_case_mem(&trimmed_resource, STRING_STRLEN("about")))
     {
         /* About me */
         PRET(processor_print(type, &context, ES_INITIALIZE, NULL, NULL));
@@ -122,7 +120,7 @@ static struct Error *processor_process_generic(int type, const struct Value *res
         PRET(processor_process_generic_footer(type, &context, "/about"));
         PRET(processor_print(type, &context, ES_FINALIZE, NULL, NULL));
     }
-    else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("twinkleshine")))
+    else if (value_compare_case_mem(&trimmed_resource, STRING_STRLEN("twinkleshine")))
     {
         /* About twinkleshine */
         char time_since_startup[64];
@@ -140,7 +138,7 @@ static struct Error *processor_process_generic(int type, const struct Value *res
         PRET(processor_process_generic_footer(type, &context, "/twinkleshine"));
         PRET(processor_print(type, &context, ES_FINALIZE, NULL, NULL));
     }
-    else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("smallnet")))
+    else if (value_compare_case_mem(&trimmed_resource, STRING_STRLEN("smallnet")))
     {
         /* About smallnet */
         PRET(processor_print(type, &context, ES_INITIALIZE, NULL, NULL));
@@ -164,7 +162,7 @@ static struct Error *processor_process_generic(int type, const struct Value *res
         PRET(processor_process_generic_footer(type, &context, "/smallnet"));
         PRET(processor_print(type, &context, ES_FINALIZE, NULL, NULL));
     }
-    else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("resume")))
+    else if (value_compare_case_mem(&trimmed_resource, STRING_STRLEN("resume")))
     {
         /* CV */
         PRET(processor_print(type, &context, ES_INITIALIZE, NULL, NULL));
@@ -268,7 +266,8 @@ static struct ExError processor_process_specific(int type, const struct Request 
     case CT_HTTP:   EXPRET(processor_process_http(request, request_stream, response, response_queue, response_stream));     break;
     case CT_GOPHER: EXPRET(processor_process_gopher(request, request_stream, response, response_queue, response_stream));   break;
     case CT_FINGER: EXPRET(processor_process_finger(request, request_stream, response, response_queue, response_stream));   break;
-    default:        EXPRET(processor_process_gemini(request, request_stream, response, response_queue, response_stream));   break; /* CT_GEMINI */
+    case CT_GEMINI: EXPRET(processor_process_gemini(request, request_stream, response, response_queue, response_stream));   break;
+    default:        EXPRET(processor_process_nex(request, request_stream, response, response_queue, response_stream));      break; /* CT_NEX */
     }
     return EXOK;
 }
@@ -326,7 +325,8 @@ struct ExError processor_fixed(int type, enum FixedResponse fixed,
     case CT_HTTP:   EXPRET(processor_fixed_http(fixed, response, response_queue, response_stream));     break;
     case CT_GOPHER: EXPRET(processor_fixed_gopher(fixed, response, response_queue, response_stream));   break;
     case CT_FINGER: EXPRET(processor_fixed_finger(fixed, response, response_queue, response_stream));   break;
-    default:        EXPRET(processor_fixed_gemini(fixed, response, response_queue, response_stream));   break; /* CT_GEMINI */
+    case CT_GEMINI: EXPRET(processor_fixed_gemini(fixed, response, response_queue, response_stream));   break;
+    default:        EXPRET(processor_fixed_nex(fixed, response, response_queue, response_stream));      break; /* CT_NEX */
     }
     return EXOK;
 }
@@ -338,7 +338,8 @@ void processor_fixed_failsafe(int type, enum FixedResponse fixed, struct ConstVa
     case CT_HTTP:   processor_fixed_http_failsafe(fixed, response_stream);      break;
     case CT_GOPHER: processor_fixed_gopher_failsafe(fixed, response_stream);    break;
     case CT_FINGER: processor_fixed_finger_failsafe(fixed, response_stream);    break;
-    default:        processor_fixed_gemini_failsafe(fixed, response_stream);    break; /* CT_GEMINI */
+    case CT_GEMINI: processor_fixed_gemini_failsafe(fixed, response_stream);    break;
+    default:        processor_fixed_nex_failsafe(fixed, response_stream);       break; /* CT_NEX */
     }
 }
 
