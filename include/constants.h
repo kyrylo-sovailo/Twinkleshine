@@ -146,7 +146,7 @@ Socket allocation
 #else
     #define GEMINI_PORT_STRING ":" STRINGIZE(GEMINI_PORT)
 #endif
-#if NEX_PORT == 1965
+#if NEX_PORT == 1900
     #define NEX_PORT_STRING ""
 #else
     #define NEX_PORT_STRING ":" STRINGIZE(NEX_PORT)
