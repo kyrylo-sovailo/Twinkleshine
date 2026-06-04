@@ -1,13 +1,12 @@
 #include "../../include/processor.h"
 #include "../../commonlib/include/error.h"
 #include "../../commonlib/include/string.h"
+#include "../../include/macro.h"
 #include "../../include/parser.h"
-#include "../../include/random.h"
 #include "../../include/ring.h"
 #include "../../include/tables.h"
 #include "../../include/time.h"
 
-#include <stdbool.h>
 #include <string.h>
 #include <time.h>
 
@@ -34,15 +33,6 @@ static const char http_template_success[] =
 static const char html_template_error_page[] =
 "<p>%s</p>\n"
 "<p>%s</p>\n";
-
-static const char html_template_index_page[] =
-"<header>\n"
-"    <h1>This is Kyrylo's website.</h1>\n"
-"</header>\n"
-"<p>It is displaying correctly.</p>\n"
-"<p>The style is not a bug. It is a feature.</p>\n"
-"<p>Served to you by the <a href=\"https://github.com/kyrylo-sovailo/Twinkleshine\">Twinkleshine server</a>, fully written in C by yours truly.</p>\n"
-"<p>Fun fact: %s</p>\n";
 
 static const char html_open[] =
 "<!DOCTYPE html>\n"
@@ -87,44 +77,6 @@ static struct Error *processor_module_initialize_one(struct CharBuffer *buffer, 
     return OK;
 }
 
-static void processor_set_locations_one(const struct ValueLocation *request_location, struct ValueLocation *response_location, size_t *size)
-{
-    response_location->offset = *size;
-    response_location->size = request_location->size;
-    *size += request_location->size;
-}
-
-static void processor_set_locations(const struct Request *request, struct Response *response)
-{
-    response->size = 0;
-    processor_set_locations_one(&request->method, &response->method, &response->size);
-    processor_set_locations_one(&request->protocol, &response->protocol, &response->size);
-    processor_set_locations_one(&request->resource, &response->resource, &response->size);
-}
-
-static struct Error *processor_push_metadata_one(const struct ValueLocation *request_location, const struct Ring *request_stream, struct Ring *response_queue) NODISCARD;
-static struct Error *processor_push_metadata_one(const struct ValueLocation *request_location, const struct Ring *request_stream, struct Ring *response_queue)
-{
-    struct Value value;
-    unsigned char i;
-    
-    PRET(ring_get(request_stream, request_location, false, &value));
-    for (i = 0; i < VALUE_PARTS; i++)
-    {
-        PRET(ring_push_write(response_queue, value.parts[i].size, value.parts[i].p));
-    }
-    return OK;
-}
-
-static struct Error *processor_push_metadata(const struct Request *request, const struct Ring *request_stream, struct Ring *response_queue) NODISCARD;
-static struct Error *processor_push_metadata(const struct Request *request, const struct Ring *request_stream, struct Ring *response_queue)
-{
-    PRET(processor_push_metadata_one(&request->method, request_stream, response_queue));
-    PRET(processor_push_metadata_one(&request->protocol, request_stream, response_queue));
-    PRET(processor_push_metadata_one(&request->resource, request_stream, response_queue));
-    return OK;
-}
-
 struct Error *processor_module_initialize_http(void)
 {
     PRET(processor_module_initialize_one(&g_http_fixed_max_clients,
@@ -164,35 +116,93 @@ void processor_module_finalize_http(void)
     string_finalize(&g_internal_buffer_two);
 }
 
+struct Error *processor_print_http(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
+{
+    /* Prefix */
+    if (context->previous_style == ES_ITEMIZE && style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("</ol>\n"))); }
+    if (context->previous_style == ES_ENUMERATION && style != ES_ENUMERATION) { PRET(string_append_mem(context->two, STRING_STRLEN("</ul>\n"))); }
+    context->previous_style = style;
+    switch (style)
+    {
+    case ES_INITIALIZE:
+    {
+        PRET(string_copy_mem(context->two, STRING_STRLEN(html_open)));
+        return OK;
+    }
+    case ES_FINALIZE:
+    {
+        const struct tm global_calender = time_to_calender(time(NULL), true);
+        PRET(string_append_mem(context->two, STRING_STRLEN(html_close)));
+        PRET(string_print(context->one, http_template_success, (unsigned int)context->two->size, context->request->keep_alive ? "keep-alive" : "close",
+            days_xxx[global_calender.tm_wday], global_calender.tm_mday, months_xxx[global_calender.tm_mon], 1900 + global_calender.tm_year,
+            global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec));
+        return OK;
+    }
+    case ES_NORMAL:
+    {
+        PRET(string_append_mem(context->two, STRING_STRLEN("<p>")));
+        break;
+    }
+    case ES_ITEMIZE:
+    {
+        if (context->previous_style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("<ul>\n"))); }
+        PRET(string_append_mem(context->two, STRING_STRLEN("<li>")));
+        break;
+    }
+    case ES_ENUMERATION:
+    {
+        if (context->previous_style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("<ol>\n"))); }
+        PRET(string_append_mem(context->two, STRING_STRLEN("<li>")));
+        break;
+    }
+    case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("<blockquote>\n<p>"))); break;
+    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("<h3>"))); break;
+    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("<h2>"))); break;
+    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("<h1>"))); break;
+    case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("<header>\n<h1>"))); break;
+    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p>\n<a href=\"/%s\">", resource)); break;
+    case ES_EXTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p>\n<a href=\"%s\">", resource)); break;
+    }
+    
+    /* Text */
+    PRET(string_vprint_append(context->two, format, va));
+
+    /* Suffix */
+    switch (style)
+    {
+    case ES_NORMAL: PRET(string_append_mem(context->two, STRING_STRLEN("</p>\n"))); break;
+    case ES_ITEMIZE:
+    case ES_ENUMERATION: PRET(string_append_mem(context->two, STRING_STRLEN("</li>\n"))); break;
+    case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("</p>\n</blockquote>\n"))); break;
+    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("</h3>\n"))); break;
+    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("</h2>\n"))); break;
+    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>\n"))); break;
+    case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>\n</header>\n"))); break;
+    default: PRET(string_append_mem(context->two, STRING_STRLEN("</p>\n</a>\n"))); break; /* ES_INTERNAL_REFERENCE, ES_EXTERNAL_REFERENCE */
+    }
+    return OK;
+}
+
 struct ExError processor_process_http(const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
 {
     const struct ExError EXOK = { OK };
     const struct ConstValue zero = ZERO_INIT;
-    struct Value method, resource;
-    bool keep_alive = request->keep_alive;
+    struct Value method, resource, protocol;
+    bool keep_alive;
     
-    /* Actual logic */
     EXPRETF(ring_get(request_stream, &request->method, false, &method), EEF_CLOSE_LOG_DIE);
     EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
-    if (!value_compare_case_mem(&method, "get", strlen("get")))
+    EXPRETF(ring_get(request_stream, &request->protocol, false, &protocol), EEF_CLOSE_LOG_DIE);
+    if (!value_compare_case_mem(&method, STRING_STRLEN("get")))
     {
+        keep_alive = request->keep_alive;
         EXPRETF(string_copy_mem(&g_internal_buffer_two, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
         EXPRETF(string_print_append(&g_internal_buffer_two, html_template_error_page, "405 Method Not Allowed", "Invalid method"), EEF_CLOSE_LOG);
         EXPRETF(string_append_mem(&g_internal_buffer_two, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
         EXPRETF(string_print(&g_internal_buffer_one, http_template_error, "405 Method Not Allowed", (unsigned int)g_internal_buffer_two.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
     }
-    else if (value_compare_case_mem(&resource, "/", strlen("/")))
-    {
-        const struct tm global_calender = time_to_calender(time(NULL), true);
-        EXPRETF(string_copy_mem(&g_internal_buffer_two, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_print_append(&g_internal_buffer_two, html_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_internal_buffer_two, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
-        EXPRETF(string_print(&g_internal_buffer_one, http_template_success, (unsigned int)g_internal_buffer_two.size, keep_alive ? "keep-alive" : "close",
-            days_xxx[global_calender.tm_wday], global_calender.tm_mday, months_xxx[global_calender.tm_mon], 1900 + global_calender.tm_year,
-            global_calender.tm_hour, global_calender.tm_min, global_calender.tm_sec), EEF_CLOSE_LOG);
-    }
-    else if (value_compare_case_mem(&resource, "/robots.txt", strlen("/robots.txt")))
+    else if (value_compare_case_mem(&resource, STRING_STRLEN("/robots.txt")))
     {
         const struct tm global_calender = time_to_calender(time(NULL), true);
         keep_alive = false;
@@ -203,9 +213,10 @@ struct ExError processor_process_http(const struct Request *request, const struc
     }
     else
     {
-        EXPRETF(string_copy_mem(&g_internal_buffer_two, html_open, sizeof(html_open) - 1), EEF_CLOSE_LOG);
+        keep_alive = request->keep_alive;
+        EXPRETF(string_copy_mem(&g_internal_buffer_two, STRING_STRLEN(html_open)), EEF_CLOSE_LOG);
         EXPRETF(string_print_append(&g_internal_buffer_two, html_template_error_page, "404 Not Found", "Invalid resource"), EEF_CLOSE_LOG);
-        EXPRETF(string_append_mem(&g_internal_buffer_two, html_close, sizeof(html_close) - 1), EEF_CLOSE_LOG);
+        EXPRETF(string_append_mem(&g_internal_buffer_two, STRING_STRLEN(html_close)), EEF_CLOSE_LOG);
         EXPRETF(string_print(&g_internal_buffer_one, http_template_error, "404 Not Found", (unsigned int)g_internal_buffer_two.size, keep_alive ? "keep-alive" : "close"), EEF_CLOSE_LOG);
     }
     *response_stream = zero;
@@ -214,15 +225,8 @@ struct ExError processor_process_http(const struct Request *request, const struc
     response_stream->parts[1].p = g_internal_buffer_two.p;
     response_stream->parts[1].size = g_internal_buffer_two.size;
 
-    /* Response */
-    processor_set_locations(request, response);
-    response->keep_alive = keep_alive;
-    response->stream_size = g_internal_buffer_one.size + g_internal_buffer_two.size;
-
-    /* Metadata */
-    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
-    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
-    EXPRETF(processor_push_metadata(request, request_stream, response_queue), EEF_CLOSE_LOG_DIE);
+    EXPRET(processor_construct_response(response, response_queue,
+        value_const_size(response_stream), keep_alive, &method, &resource, &protocol));
 
     return EXOK;
 }
@@ -231,20 +235,11 @@ struct ExError processor_fixed_http(enum FixedResponse fixed,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
 {
     const struct ExError EXOK = { OK };
-    const struct Response zero = ZERO_INIT;
+    const struct Value zero = ZERO_INIT;
 
-    /* Actual logic */
     processor_fixed_http_failsafe(fixed, response_stream);
-
-    /* Response */
-    *response = zero;
-    response->keep_alive = false;
-    response->stream_size = value_const_size(response_stream);
-
-    /* Metadata */
-    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
-    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
-    /* TODO: some metadata? */
+    EXPRET(processor_construct_response(response, response_queue,
+        response_stream->parts[0].size, false, &zero, &zero, &zero));
 
     return EXOK;
 }

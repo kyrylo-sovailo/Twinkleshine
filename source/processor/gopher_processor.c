@@ -1,60 +1,91 @@
 #include "../../include/processor.h"
 #include "../../commonlib/include/error.h"
+#include "../../commonlib/include/macro.h"
 #include "../../commonlib/include/string.h"
+#include "../../include/constants.h"
+#include "../../include/macro.h"
 #include "../../include/parser.h"
-#include "../../include/random.h"
 #include "../../include/ring.h"
-#include "../../include/tables.h"
 
-#include <stdbool.h>
 #include <string.h>
 
 #define FAKE "\tfake\t(NULL)\t0\r\n"
 #define CRLF "\r\n"
 #define FAKE_CRLF FAKE CRLF
 
-static const char gopher_template_index_page[] =
-"iThis is Kyrylo's website." FAKE_CRLF
-"iIt is displaying correctly." FAKE_CRLF
-"iThe style is not a bug. It is a feature." FAKE_CRLF
-"iServed to you by the Twinkleshine server, fully written in C by yours truly." FAKE_CRLF
-"ihttps://github.com/kyrylo-sovailo/Twinkleshine" FAKE_CRLF
-"iFun fact: %s" FAKE_CRLF;
-
-static void processor_set_locations_one(const struct ValueLocation *request_location, struct ValueLocation *response_location, size_t *size)
+static void memset_alt(char *destination, size_t n)
 {
-    response_location->offset = *size;
-    response_location->size = request_location->size;
-    *size += request_location->size;
+    /* Lagrange can't handle long sequences of equal symbols */
+    size_t i;
+    for (i = 0; i < n; i++) destination[i] = (i & 1) ? '0' : 'O';
 }
 
-static void processor_set_locations(const struct Request *request, struct Response *response)
+struct Error *processor_print_gopher(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
-    const struct ValueLocation zero = ZERO_INIT;
-    response->size = 0;
-    response->method = zero;
-    response->protocol = zero;
-    processor_set_locations_one(&request->resource, &response->resource, &response->size);
-}
-
-static struct Error *processor_push_metadata_one(const struct ValueLocation *request_location, const struct Ring *request_stream, struct Ring *response_queue) NODISCARD;
-static struct Error *processor_push_metadata_one(const struct ValueLocation *request_location, const struct Ring *request_stream, struct Ring *response_queue)
-{
-    struct Value value;
-    unsigned char i;
+    size_t old_size, line_size;
+    char *p;
     
-    PRET(ring_get(request_stream, request_location, false, &value));
-    for (i = 0; i < VALUE_PARTS; i++)
+    /* Prefix */
+    context->list_index = (style == ES_ENUMERATION) ? (context->list_index + 1) : 0;
+    switch (style)
     {
-        PRET(ring_push_write(response_queue, value.parts[i].size, value.parts[i].p));
+    case ES_INITIALIZE: context->one->size = 0; context->two->size = 0; return OK;
+    case ES_FINALIZE: return OK;
+    case ES_ITEMIZE: PRET(string_append_mem(context->one, STRING_STRLEN("i - "))); break;
+    case ES_ENUMERATION: PRET(string_print_append(context->one, "i %u. ", context->list_index)); break;
+    case ES_QUOTE: PRET(string_append_mem(context->one, STRING_STRLEN("i > "))); break;
+    case ES_LARGE:
+    case ES_LARGER:
+        if (context->one->size > 0) PRET(string_append_mem(context->one, STRING_STRLEN("i" FAKE_CRLF)));
+        old_size = context->one->size;
+        PRET(string_append_mem(context->one, STRING_STRLEN("i")));
+        break;
+    case ES_LARGEST:
+    case ES_HEADER:
+        if (context->one->size > 0) PRET(string_append_mem(context->one, STRING_STRLEN("i" FAKE_CRLF)));
+        old_size = context->one->size;
+        PRET(string_append_mem(context->one, STRING_STRLEN("iO ")));
+        break;
+    case ES_INTERNAL_REFERENCE:
+        PRET(string_print_append(context->one, "1"));
+        break;
+    default:
+        PRET(string_append_mem(context->one, STRING_STRLEN("i")));
+        break;
     }
-    return OK;
-}
+    
+    /* Text */
+    PRET(string_vprint_append(context->one, format, va));
 
-static struct Error *processor_push_metadata(const struct Request *request, const struct Ring *request_stream, struct Ring *response_queue) NODISCARD;
-static struct Error *processor_push_metadata(const struct Request *request, const struct Ring *request_stream, struct Ring *response_queue)
-{
-    PRET(processor_push_metadata_one(&request->resource, request_stream, response_queue));
+    /* Suffix */
+    switch (style)
+    {
+    case ES_LARGE:
+    case ES_LARGER:
+        for (p = context->one->p + old_size + 1; p < context->one->p + context->one->size; p++) *p = (*p >= 'a' && *p <= 'z') ? (*p - 'a' + 'A') : *p;
+        PRET(string_append_mem(context->one, STRING_STRLEN(FAKE_CRLF)));
+        break;
+    case ES_LARGEST:
+    case ES_HEADER:
+        for (p = context->one->p + old_size + 1; p < context->one->p + context->one->size; p++) *p = (*p >= 'a' && *p <= 'z') ? (*p - 'a' + 'A') : *p;
+        PRET(string_append_mem(context->one, STRING_STRLEN(" O"FAKE_CRLF)));
+        line_size = context->one->size - old_size;
+        PRET(string_print_append(context->one, "%*s", (int)line_size * 2, ""));
+        memcpy(context->one->p + old_size + line_size    , context->one->p + old_size, line_size);
+        memcpy(context->one->p + old_size + line_size * 2, context->one->p + old_size, line_size);
+        memset_alt(context->one->p + old_size                 + 1, line_size - 1 - (sizeof(FAKE_CRLF)-1));
+        memset_alt(context->one->p + old_size + line_size * 2 + 1, line_size - 1 - (sizeof(FAKE_CRLF)-1));
+        break;
+    case ES_INTERNAL_REFERENCE:
+        PRET(string_print_append(context->one, "\t%s\t" DOMAIN_NAME "\t" STRINGIZE(GOPHER_PORT) CRLF, resource));
+        break;
+    case ES_EXTERNAL_REFERENCE:
+        PRET(string_print_append(context->one, ": %s" FAKE_CRLF, resource));
+        break;
+    default:
+        PRET(string_append_mem(context->one, STRING_STRLEN(FAKE_CRLF))); break;
+        break;
+    }
     return OK;
 }
 
@@ -63,33 +94,17 @@ struct ExError processor_process_gopher(const struct Request *request, const str
 {
     const struct ExError EXOK = { OK };
     const struct ConstValue zero = ZERO_INIT;
-    struct Value resource;
+    struct Value method, resource, protocol;
     
-    /* Actual logic */
+    *response_stream = zero;
+    response_stream->parts[0].p = "3Invalid resource" FAKE_CRLF;
+    response_stream->parts[0].size = sizeof("3Invalid resource" FAKE_CRLF) - 1;
+
+    EXPRETF(ring_get(request_stream, &request->method, false, &method), EEF_CLOSE_LOG_DIE);
     EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
-    if (value_compare_case_mem(&resource, "", strlen("")) || value_compare_case_mem(&resource, "/", strlen("/")))
-    {
-        EXPRETF(string_print(&g_internal_buffer_one, gopher_template_index_page, fun_facts[random_rand(sizeof(fun_facts)/sizeof(*fun_facts))]), EEF_CLOSE_LOG);
-        *response_stream = zero;
-        response_stream->parts[0].p = g_internal_buffer_one.p;
-        response_stream->parts[0].size = g_internal_buffer_one.size;
-    }
-    else
-    {
-        *response_stream = zero;
-        response_stream->parts[0].p = "3Invalid resource" FAKE_CRLF;
-        response_stream->parts[0].size = strlen(response_stream->parts[0].p);
-    }
-
-    /* Response */
-    processor_set_locations(request, response);
-    response->keep_alive = false;
-    response->stream_size = g_internal_buffer_one.size;
-
-    /* Metadata */
-    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
-    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
-    EXPRETF(processor_push_metadata(request, request_stream, response_queue), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(request_stream, &request->protocol, false, &protocol), EEF_CLOSE_LOG_DIE);
+    EXPRET(processor_construct_response(response, response_queue,
+        response_stream->parts[0].size, false, &method, &resource, &protocol));
 
     return EXOK;
 }
@@ -98,20 +113,11 @@ struct ExError processor_fixed_gopher(enum FixedResponse fixed,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
 {
     const struct ExError EXOK = { OK };
-    const struct Response zero = ZERO_INIT;
+    const struct Value zero = ZERO_INIT;
 
-    /* Actual logic */
     processor_fixed_gopher_failsafe(fixed, response_stream);
-
-    /* Response */
-    *response = zero;
-    response->keep_alive = false;
-    response->stream_size = value_const_size(response_stream);
-
-    /* Metadata */
-    EXPRETF(ring_reserve(response_queue, response_queue->size + sizeof(struct Response) + response->size), EEF_CLOSE_LOG);
-    EXPRETF(ring_push_write(response_queue, sizeof(struct Response), (const char*)response), EEF_CLOSE_LOG_DIE);
-    /* TODO: some metadata? */
+    EXPRET(processor_construct_response(response, response_queue,
+        response_stream->parts[0].size, false, &zero, &zero, &zero));
 
     return EXOK;
 }

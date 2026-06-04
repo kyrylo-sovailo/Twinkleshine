@@ -11,7 +11,7 @@ static struct Error *server_pop_response(struct Client *client)
 {
     struct Value method, resource;
     PRET(ring_pop(&client->response_queue, sizeof(struct Response)));
-    if (client->response.size == 0) return OK; /* Phony */
+    if (client->response.phony) return OK; /* Phony */
     PRET(ring_get(&client->response_queue, &client->response.method, false, &method));
     PRET(ring_get(&client->response_queue, &client->response.resource, false, &resource));
     output_open(false);

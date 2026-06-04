@@ -1,6 +1,9 @@
 #ifndef MACRO_H
 #define MACRO_H
 
+/* Safety macro */
+#define STRING_STRLEN(STRING) STRING, sizeof(STRING) - 1
+
 /* Static analysis fixers */
 #if defined(__GNUC__) && !defined(__clang__)
     #define ZERO_AND_FORGET(TYPE, VARIABLE) \

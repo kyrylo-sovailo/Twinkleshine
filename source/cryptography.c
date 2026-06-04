@@ -86,6 +86,7 @@ static struct ExError cryptography_create_phony_response(struct Client *client, 
     struct Response phony = ZERO_INIT;
     if (phony_size == 0) return EXOK;
     phony.stream_size = phony_size;
+    phony.phony = true;
     EXPRETF(ring_reserve(&client->response_queue, client->response_queue.size + sizeof(struct Response)), EEF_CLOSE_LOG);
     EXPRETF(ring_push_write(&client->response_queue, sizeof(struct Response), (const char*)&phony), EEF_CLOSE_LOG_DIE);
     if (client->response_count == 0) client->response = phony;
@@ -101,15 +102,8 @@ struct Error *cryptography_module_initialize(void)
     ARET0(g_cryptography_context != NULL, "SSL_CTX_new() failed");
     ARET0(SSL_CTX_set_min_proto_version(g_cryptography_context, TLS1_2_VERSION) == 1, "SSL_CTX_set_min_proto_version() failed");
     ARET0(SSL_CTX_set_max_proto_version(g_cryptography_context, TLS1_3_VERSION) == 1, "SSL_CTX_set_max_proto_version() failed");
-    if (SSL_CTX_use_certificate_file(g_cryptography_context, "/etc/ssl/certs/my8bitsoul.eu.crt", SSL_FILETYPE_PEM) == 1)
-    {
-        ARET0(SSL_CTX_use_PrivateKey_file(g_cryptography_context, "/etc/ssl/private/my8bitsoul.eu.key", SSL_FILETYPE_PEM) == 1, "SSL_CTX_use_PrivateKey_file() failed");
-    }
-    else
-    {
-        ARET0(SSL_CTX_use_PrivateKey_file(g_cryptography_context, "localhost.key", SSL_FILETYPE_PEM) == 1, "SSL_CTX_use_PrivateKey_file() failed");
-        ARET0(SSL_CTX_use_certificate_file(g_cryptography_context, "localhost.crt", SSL_FILETYPE_PEM) == 1, "SSL_CTX_use_certificate_file() failed");
-    }
+    ARET0(SSL_CTX_use_PrivateKey_file(g_cryptography_context, KEY_FILE, SSL_FILETYPE_PEM) == 1, "SSL_CTX_use_PrivateKey_file() failed");
+    ARET0(SSL_CTX_use_certificate_file(g_cryptography_context, CERTIFICATE_FILE, SSL_FILETYPE_PEM) == 1, "SSL_CTX_use_certificate_file() failed");
     ARET0(SSL_CTX_check_private_key(g_cryptography_context) == 1, "SSL_CTX_check_private_key() failed");
     /* SSL_CTX_set_info_callback(g_cryptography_context, cryptography_callback); */
     return OK;

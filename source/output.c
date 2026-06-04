@@ -247,7 +247,7 @@ void output_open(bool output_error)
     if (create_new_log)
     {
         struct Log new_log = ZERO_INIT;
-        const size_t name_length = strlen("YYYY-MM-DD.log");
+        const size_t name_length = sizeof("YYYY-MM-DD.log") - 1;
         new_log.global_start = global_start;
         new_log.number = create_new_log_number;
         new_log.path = count_malloc(log_directory_length + name_length + 1);

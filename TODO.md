@@ -1,8 +1,8 @@
  - [X] Implement limits and throttling (priority: critical)
  - [X] Fix the bug where short buffer is freed by every client (priority: critical)
- - [ ] Implement Gopher
- - [ ] Implement Gemini
- - [ ] Implement HTTPS (priority: high)
+ - [X] Implement Gopher
+ - [X] Implement Gemini
+ - [X] Implement HTTPS (priority: high)
  - [X] Implement IPv6 sockets
  - [X] Implement 404, 500 and other special pages (priority: critical)
  - [X] Implement fun facts (priority: high)

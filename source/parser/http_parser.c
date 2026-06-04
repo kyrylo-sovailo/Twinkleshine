@@ -1,6 +1,7 @@
 #include "../../include/parser.h"
 #include "../../commonlib/include/error.h"
 #include "../../include/constants.h"
+#include "../../include/macro.h"
 #include "../../include/ring.h"
 #include "../../include/tables.h"
 
@@ -12,7 +13,7 @@ static struct ExError parser_parse_http_name_value(struct Parser *parser, struct
     const struct ExError EXOK = { OK };
     struct Value name;
     EXPRETF(ring_get(request_stream, &parser->current_name, false, &name), EEF_CLOSE_LOG_DIE);
-    if (value_compare_case_mem(&name, "content-length", strlen("content-length")))
+    if (value_compare_case_mem(&name, STRING_STRLEN("content-length")))
     {
         struct Value value;
         EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF_CLOSE_LOG_DIE);
@@ -24,7 +25,7 @@ static struct ExError parser_parse_http_name_value(struct Parser *parser, struct
             "Promised request size exceeded",
             EEF_SEND_SHUTDOWN_LOG(FR_MAX_REQUEST_CONTENT_SIZE));
     }
-    else if (value_compare_case_mem(&name, "connection", strlen("connection")))
+    else if (value_compare_case_mem(&name, STRING_STRLEN("connection")))
     {
         struct Value value;
         EXPRETF(ring_get(request_stream, &parser->current_value, false, &value), EEF_CLOSE_LOG_DIE);
@@ -33,11 +34,11 @@ static struct ExError parser_parse_http_name_value(struct Parser *parser, struct
             struct Value current_value;
             const bool parts_remaining = value_parse_comma(&value, &current_value);
             value_trim(&current_value);
-            if (value_compare_case_mem(&current_value, "keep-alive", strlen("keep-alive"))) { request->keep_alive = true; break; }
+            if (value_compare_case_mem(&current_value, STRING_STRLEN("keep-alive"))) { request->keep_alive = true; break; }
             if (!parts_remaining) break;
         }
     }
-    else if (value_compare_case_mem(&name, "user-agent", strlen("user-agent")))
+    else if (value_compare_case_mem(&name, STRING_STRLEN("user-agent")))
     {
         request->user = parser->current_value;
     }

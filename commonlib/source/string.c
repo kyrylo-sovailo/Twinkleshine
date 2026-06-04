@@ -303,6 +303,7 @@ ERROR_TYPE string_internal_vprint_append(struct CharBuffer *string, bool suppres
         if (*format == COMMON_L('%'))
         {
             /* Double percent, print % */
+            format++;
             SOFT_ARET(string_vprint_append_internal_reserve(string, 1));
             string->p[string->size] = COMMON_L('%');
             string->p[string->size + 1] = COMMON_L('\0');

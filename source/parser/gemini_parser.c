@@ -25,7 +25,7 @@ static struct ExError parser_parse_gemini_part(struct Parser *parser, struct Req
             break;
 
         case RPS_WAIT_METHOD_END:
-            if ((c_type & CM_DOMAIN) != 0) { request->method.size++; }
+            if ((c_type & CM_DOMAIN) != 0 || c == ':') { request->method.size++; } /* Colon because Gemini can also receive port number */
             else if (c == '/') { request->resource.offset = request->stream_size; request->resource.size = 1; parser->state = RPS_WAIT_RESOURCE_END; }
             else if (c == '\r') parser->state = RPS_WAIT_FINAL_LINE_LF;
             else if (c == '\n') { parser->tolerated_lf = true; parser->state = RPS_END; }

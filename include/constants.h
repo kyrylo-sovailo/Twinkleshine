@@ -1,6 +1,8 @@
 #ifndef CONSTANTS_H
 #define CONSTANTS_H
 
+#include "macro.h"
+
 /* Units */
 #define KILOBYTE 1024
 #define MEGABYTE 1048576
@@ -97,6 +99,51 @@ Logging
 /*
 Socket allocation
 */
+
+#ifdef TWINKLESHINE_RELEASE
+    #define HTTP_PORT 80
+    #define HTTPS_PORT 443
+    #define GOPHER_PORT 70
+    #define FINGER_PORT 79
+    #define GEMINI_PORT 1965
+    #define DOMAIN_NAME "my8bitsoul.eu"
+    #define KEY_FILE "/etc/ssl/private/my8bitsoul.eu.key"
+    #define CERTIFICATE_FILE "/etc/ssl/certs/my8bitsoul.eu.crt"
+#else
+    #define HTTP_PORT 8080
+    #define HTTPS_PORT 8443
+    #define GOPHER_PORT 8070
+    #define FINGER_PORT 8079
+    #define GEMINI_PORT 9965
+    #define DOMAIN_NAME "localhost"
+    #define KEY_FILE "localhost.key"
+    #define CERTIFICATE_FILE "localhost.crt"
+#endif
+#if HTTP_PORT == 80
+    #define HTTP_PORT_STRING ""
+#else
+    #define HTTP_PORT_STRING ":" STRINGIZE(HTTP_PORT)
+#endif
+#if HTTPS_PORT == 443
+    #define HTTPS_PORT_STRING ""
+#else
+    #define HTTPS_PORT_STRING ":" STRINGIZE(HTTPS_PORT)
+#endif
+#if GOPHER_PORT == 70
+    #define GOPHER_PORT_STRING ""
+#else
+    #define GOPHER_PORT_STRING ":" STRINGIZE(GOPHER_PORT)
+#endif
+#if FINGER_PORT == 79
+    #define FINGER_PORT_STRING ""
+#else
+    #define FINGER_PORT_STRING ":" STRINGIZE(FINGER_PORT)
+#endif
+#if GEMINI_PORT == 1965
+    #define GEMINI_PORT_STRING ""
+#else
+    #define GEMINI_PORT_STRING ":" STRINGIZE(GEMINI_PORT)
+#endif
 
 #define ACCEPTING_SOCKETS 10
 #define ACCEPTING_SOCKET_IS_HTTP(INDEX)   (                (INDEX) < 2)

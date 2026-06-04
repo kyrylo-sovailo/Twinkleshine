@@ -67,78 +67,61 @@ static struct Error *server_try_socket_pair(struct PollBuffer *polls, unsigned s
     return error;
 }
 
-static struct Error *server_create_socket_pair(struct PollBuffer *polls, const char ***mode, const unsigned short **port) NODISCARD;
-static struct Error *server_create_socket_pair(struct PollBuffer *polls, const char ***mode, const unsigned short **port)
+static struct Error *server_create_socket_pair(struct PollBuffer *polls, const char ***mode, unsigned short port) NODISCARD;
+static struct Error *server_create_socket_pair(struct PollBuffer *polls, const char ***mode, unsigned short port)
 {
-    const size_t old_size = polls->size;
-    unsigned char i;
-
     /* Trying in that order: IPv6+IPv4 > IPv6* > IPv6 > IPv4 > try again with reserve port */
-    ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
-    for (i = 0; i < 2; i++)
-    {
-        PRET(server_try_socket_pair(polls, **port, true, true, true));
-        if (polls->size > old_size) break;
-        (*mode)++;
-        PRET(server_try_socket_pair(polls, **port, false, true, false));
-        if (polls->size > old_size) break;
-        (*mode)++;
-        PRET(server_try_socket_pair(polls, **port, false, true, true));
-        if (polls->size > old_size) break;
-        (*mode)++;
-        PRET(server_try_socket_pair(polls, **port, true, false, false));
-        if (polls->size > old_size) break;
-        (*mode)++; (*mode) -= 4;
-        (*port)++;
-    }
-    ARET0(polls->size > old_size, "All modes failed");
-    return OK;
+    const size_t old_size = polls->size;
+    PRET(server_try_socket_pair(polls, port, true, true, true));
+    if (polls->size > old_size) return OK;
+    (*mode)++;
+    PRET(server_try_socket_pair(polls, port, false, true, false));
+    if (polls->size > old_size) return OK;
+    (*mode)++;
+    PRET(server_try_socket_pair(polls, port, false, true, true));
+    if (polls->size > old_size) return OK;
+    (*mode)++;
+    PRET(server_try_socket_pair(polls, port, true, false, false));
+    if (polls->size > old_size) return OK;
+    (*mode)++;
+    RET0("All modes failed");
 }
 
 struct Error *server_initialize(struct PollBuffer *polls)
 {
     const struct pollfd zero = { -1, POLLIN, 0 };
     const char *modes[] = { "IPv6+IPv4", "IPv6*", "IPv6", "IPv4" };
-    const unsigned short http_ports[] = { 80, 8080 };
-    const unsigned short https_ports[] = { 443, 8443 };
-    const unsigned short gopher_ports[] = { 70, 8070 };
-    const unsigned short finger_ports[] = { 79, 8079 };
-    const unsigned short gemini_ports[] = { 1965, 9965 };
     const char **http_mode, **https_mode, **gopher_mode, **finger_mode, **gemini_mode;
-    const unsigned short *http_port, *https_port, *gopher_port, *finger_port, *gemini_port;
+
+    ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
     
     http_mode = &modes[0];
-    http_port = &http_ports[0];
-    PRET(server_create_socket_pair(polls, &http_mode, &http_port));
+    PRET(server_create_socket_pair(polls, &http_mode, HTTP_PORT));
     for (;polls->size < 2;) { PRET(polls_append(polls, &zero, 1)); }
 
     https_mode = &modes[0];
-    https_port = &https_ports[0];
-    PRET(server_create_socket_pair(polls, &https_mode, &https_port));
+    PRET(server_create_socket_pair(polls, &https_mode, HTTPS_PORT));
     for (;polls->size < 4;) { PRET(polls_append(polls, &zero, 1)); }
 
     gopher_mode = &modes[0];
-    gopher_port = &gopher_ports[0];
-    PRET(server_create_socket_pair(polls, &gopher_mode, &gopher_port));
+    PRET(server_create_socket_pair(polls, &gopher_mode, GOPHER_PORT));
     for (;polls->size < 6;) { PRET(polls_append(polls, &zero, 1)); }
 
     finger_mode = &modes[0];
-    finger_port = &finger_ports[0];
-    PRET(server_create_socket_pair(polls, &finger_mode, &finger_port));
+    PRET(server_create_socket_pair(polls, &finger_mode, FINGER_PORT));
     for (;polls->size < 8;) { PRET(polls_append(polls, &zero, 1)); }
 
     gemini_mode = &modes[0];
-    gemini_port = &gemini_ports[0];
-    PRET(server_create_socket_pair(polls, &gemini_mode, &gemini_port));
+    PRET(server_create_socket_pair(polls, &gemini_mode, GEMINI_PORT));
     for (;polls->size < 10;) { PRET(polls_append(polls, &zero, 1)); }
 
     output_open(false);
     output_print(false, "Twinkleshine started\n");
-    output_print(false, "HTTP   mode: %s:%d\n", *http_mode, (int)*http_port);
-    output_print(false, "HTTPS  mode: %s:%d\n", *https_mode, (int)*https_port);
-    output_print(false, "Gopher mode: %s:%d\n", *gopher_mode, (int)*gopher_port);
-    output_print(false, "Finger mode: %s:%d\n", *finger_mode, (int)*finger_port);
-    output_print(false, "Gemini mode: %s:%d\n", *gemini_mode, (int)*gemini_port);
+    output_print(false, "HTTP   mode: %s:%d\n", *http_mode, HTTP_PORT);
+    output_print(false, "HTTPS  mode: %s:%d\n", *https_mode, HTTPS_PORT);
+    output_print(false, "Gopher mode: %s:%d\n", *gopher_mode, GOPHER_PORT);
+    output_print(false, "Finger mode: %s:%d\n", *finger_mode, FINGER_PORT);
+    output_print(false, "Gemini mode: %s:%d\n", *gemini_mode, GEMINI_PORT);
     output_print_time(false);
     output_print(false, "\n");
     output_close(false);
