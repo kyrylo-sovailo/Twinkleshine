@@ -350,10 +350,13 @@ void output_print_client(bool error_output, const struct Client *client)
         inet_ntop(AF_INET, &cast->sin_addr, address, sizeof(address));
         port = ntohs(cast->sin_port);
     }
-    if (client->type == CT_HTTP && client->ssl == NULL) protocol = "HTTP";
-    else if (client->type == CT_HTTP && client->ssl != NULL) protocol = "HTTPS";
-    else if (client->type == CT_GOPHER) protocol = "Gopher";
-    else if (client->type == CT_FINGER) protocol = "Finger";
-    else /* if (client->type == CT_GEMINI) */ protocol = "Gemini";
+    switch (client->type)
+    {
+    case CT_HTTP:   protocol = (client->ssl != NULL) ? "HTTPS" : "HTTP"; break;
+    case CT_GOPHER: protocol = "Gopher";    break;
+    case CT_FINGER: protocol = "Finger";    break;
+    case CT_GEMINI: protocol = "Gemini";    break;
+    default:        protocol = "Nex";       break; /* CT_NEX */
+    }
     output_print(error_output, "client %s:%u (%s):\n", address, (unsigned int)port, protocol);
 }
