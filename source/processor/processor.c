@@ -17,8 +17,7 @@ static void print_time_since_startup(char buffer[64])
 {
     time_t now, difference;
     unsigned int days, hours, minutes, seconds;
-    const char *days_str = "days", *hours_str = "hours", *minutes_str = "minutes", *seconds_str = "seconds";
-    unsigned char i = 4;
+    const char *days_str, *hours_str, *minutes_str, *seconds_str;
     
     now = time(NULL);
     if (now <= g_startup_time) { strcpy(buffer, "0 seconds"); return; }
@@ -28,15 +27,15 @@ static void print_time_since_startup(char buffer[64])
     minutes = (unsigned int)(difference / MINUTE) % 60;
     seconds = (unsigned int)(difference / SECOND) % 60;
 
-    if (days == 0) i--; else if (days == 1) days_str = "day";
-    if (hours == 0) i--; else if (hours == 1) hours_str = "hour";
-    if (minutes == 0) i--; else if (minutes == 1) minutes_str = "minute";
-    /* if (seconds == 0) i--; else */ if (seconds == 1) seconds_str = "second";
-    
-    if (i == 4) sprintf(buffer, "%u %s, %u %s, %u %s, and %u %s", days, days_str, hours, hours_str, minutes, minutes_str, seconds, seconds_str);
-    else if (i == 3) sprintf(buffer, "%u %s, %u %s, and %u %s", hours, hours_str, minutes, minutes_str, seconds, seconds_str);
-    else if (i == 2) sprintf(buffer, "%u %s and %u %s", minutes, minutes_str, seconds, seconds_str);
-    else /* if (i == 1) */ sprintf(buffer, "%u %s", seconds, seconds_str);
+    days_str    = (days == 1)   ? "day"     : "days";
+    hours_str   = (hours == 1)  ? "hour"    : "hours";
+    minutes_str = (minutes == 1)? "minutes" : "minutes";
+    seconds_str = (seconds == 1)? "second"  : "seconds";
+
+    if (days > 0) sprintf(buffer, "%u %s, %u %s, %u %s, and %u %s", days, days_str, hours, hours_str, minutes, minutes_str, seconds, seconds_str);
+    else if (hours > 0) sprintf(buffer, "%u %s, %u %s, and %u %s", hours, hours_str, minutes, minutes_str, seconds, seconds_str);
+    else if (minutes > 0) sprintf(buffer, "%u %s and %u %s", minutes, minutes_str, seconds, seconds_str);
+    else /* if (seconds > 0) */ sprintf(buffer, "%u %s", seconds, seconds_str);
 }
 
 static struct Error *processor_print(int type, struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, ...) PRINTFLIKE(5, 6) NODISCARD;
