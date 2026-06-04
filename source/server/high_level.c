@@ -242,6 +242,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
             return exerror.error;
         }
         error_finalize(exerror.error);
+        return OK;
     }
 
     return OK;
