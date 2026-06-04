@@ -17,7 +17,7 @@
 #include <string.h>
 #include <time.h>
 
-/* Log filename format: YYYY-MM-DD.log[.N] */
+/* Log filename format: YYYY-MM-DD.log[.NNNN] */
 
 /* Record about the existence of a log file */
 struct Log
@@ -247,13 +247,13 @@ void output_open(bool output_error)
     if (create_new_log)
     {
         struct Log new_log = ZERO_INIT;
-        const size_t name_length = sizeof("YYYY-MM-DD.log") - 1;
+        size_t name_length = log_directory_length + sizeof("YYYY-MM-DD.log.NNNN") - 1;
         new_log.global_start = global_start;
         new_log.number = create_new_log_number;
-        new_log.path = count_malloc(log_directory_length + name_length + 1);
+        new_log.path = count_malloc(name_length + 1);
         if (new_log.path == NULL) { g_catastrophic = true; return; }
-        memcpy(new_log.path, log_directory, log_directory_length);
-        sprintf(new_log.path + log_directory_length, "%d-%02d-%02d.log", global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
+        name_length  = (size_t)sprintf(new_log.path, "%s%d-%02d-%02d.log", log_directory, global_start_calender.tm_year + 1900, global_start_calender.tm_mon + 1, global_start_calender.tm_mday);
+        if (create_new_log_number > 0) name_length += (size_t)sprintf(new_log.path + name_length, ".%u", create_new_log_number);
         insert(global_now, &new_log);
         ZERO_AND_FORGET(struct Log, new_log);
     }
