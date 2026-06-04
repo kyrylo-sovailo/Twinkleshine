@@ -1,0 +1,89 @@
+#include "../../include/processor.h"
+#include "../../commonlib/include/error.h"
+#include "../../commonlib/include/string.h"
+#include "../../include/constants.h"
+#include "../../include/macro.h"
+#include "../../include/parser.h"
+#include "../../include/ring.h"
+
+#include <string.h>
+
+#define CRLF "\r\n"
+#define ENDLINE "\r\n" /* Specification says CR is optional */
+
+struct Error *processor_print_spartan(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
+{
+    switch (style)
+    {
+    case ES_INITIALIZE: /* Overload, different status code */
+        PRET(string_copy_mem(context->one, STRING_STRLEN("2 text/gemini" CRLF)));
+        context->two->size = 0;
+        break;
+
+    case ES_INTERNAL_REFERENCE: /* Overload, different protocol */
+        PRET(string_print_append(context->one, "=> spartan://" DOMAIN_NAME SPARTAN_PORT_STRING "/%s ", resource));
+        PRET(string_vprint_append(context->one, format, va));
+        PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
+        break;
+
+    default: /* Inherit */
+        PRET(processor_print_gemini(context, style, resource, format, va));
+        break;
+    }
+    return OK;
+}
+
+struct ExError processor_process_spartan(const struct Request *request, const struct Ring *request_stream,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+{
+    const struct ExError EXOK = { OK };
+    const struct ConstValue zero = ZERO_INIT;
+    struct Value method, resource, protocol;
+    
+    *response_stream = zero;
+    response_stream->parts[0].p = "4 Invalid resource" CRLF;
+    response_stream->parts[0].size = sizeof("4 Invalid resource" CRLF) - 1;
+
+    EXPRETF(ring_get(request_stream, &request->method, false, &method), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
+    EXPRETF(ring_get(request_stream, &request->protocol, false, &protocol), EEF_CLOSE_LOG_DIE);
+    EXPRET(processor_construct_response(response, response_queue,
+        response_stream->parts[0].size, false, &method, &resource, &protocol));
+
+    return EXOK;
+}
+
+struct ExError processor_fixed_spartan(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+{
+    const struct ExError EXOK = { OK };
+    const struct Value zero = ZERO_INIT;
+
+    processor_fixed_spartan_failsafe(fixed, response_stream);
+    EXPRET(processor_construct_response(response, response_queue,
+        response_stream->parts[0].size, false, &zero, &zero, &zero));
+
+    return EXOK;
+}
+
+void processor_fixed_spartan_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream)
+{
+    const struct ConstValue zero = ZERO_INIT;
+    const char *fixed_string;
+    switch (fixed)
+    {
+    case FR_MAX_CLIENTS:                    fixed_string = "5 Maximum number of clients reached" CRLF;      break;
+    case FR_MAX_MEMORY:                     fixed_string = "5 Maximum memory usage reached" CRLF;           break;
+    case FR_MAX_UTILIZATION:                fixed_string = "5 Maximum processor utilization reached" CRLF;  break;
+    case FR_UNKNOWN:                        fixed_string = "5 Unknown error" CRLF;                          break;
+    case FR_REQUEST_INVALID:                fixed_string = "4 Parser error" CRLF;                           break;
+    case FR_MAX_AVAILABLE_REQUEST_STREAM:   fixed_string = "4 Received too large chunk of data" CRLF;       break;
+    case FR_MAX_REQUEST_HEADER_SIZE:        fixed_string = "4 Actual header size is too large" CRLF;        break;
+    case FR_MAX_REQUEST_CONTENT_SIZE:       fixed_string = "4 Promised content size is too large" CRLF;     break;
+    case FR_MAX_INCOMPLETE_REQUEST_TIME:    fixed_string = "4 Request incomplete for too long" CRLF;        break;
+    default:                                fixed_string = "5 Unknown error" CRLF;                          break;
+    }
+    *response_stream = zero;
+    response_stream->parts[0].p = fixed_string;
+    response_stream->parts[0].size = strlen(fixed_string);
+}

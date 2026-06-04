@@ -16,6 +16,7 @@ enum ClientType
     CT_GOPHER,
     CT_FINGER,
     CT_GEMINI,
+    CT_SPARTAN,
     CT_NEX
 };
 

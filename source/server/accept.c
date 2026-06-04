@@ -21,6 +21,7 @@ static void server_send_low_resources(unsigned char index, struct Client *client
     if (ACCEPTING_SOCKET_IS_HTTP(index)) processor_fixed_failsafe(CT_HTTP, fixed, &response_stream);
     else if (ACCEPTING_SOCKET_IS_GOPHER(index)) processor_fixed_failsafe(CT_GOPHER, fixed, &response_stream);
     else if (ACCEPTING_SOCKET_IS_FINGER(index)) processor_fixed_failsafe(CT_FINGER, fixed, &response_stream);
+    else if (ACCEPTING_SOCKET_IS_SPARTAN(index)) processor_fixed_failsafe(CT_SPARTAN, fixed, &response_stream);
     else /* if (ACCEPTING_SOCKET_IS_NEX(index)) */ processor_fixed_failsafe(CT_NEX, fixed, &response_stream);
     PGOTO(server_send_value(&response_stream, fd, &flags));
     AGOTO((flags & CF_SATURATED) == 0);
@@ -86,6 +87,11 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
     {
         new_client.type = CT_GEMINI;
         EXPGOTO(cryptography_initialize(&new_client));
+    }
+    else if (ACCEPTING_SOCKET_IS_SPARTAN(index))
+    {
+        new_client.type = CT_SPARTAN;
+        new_client.cryptography_state = CS_OPERATIONAL;
     }
     else /* if (ACCEPTING_SOCKET_IS_NEX(index)) */
     {

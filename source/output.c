@@ -356,6 +356,7 @@ void output_print_client(bool error_output, const struct Client *client)
     case CT_GOPHER: protocol = "Gopher";    break;
     case CT_FINGER: protocol = "Finger";    break;
     case CT_GEMINI: protocol = "Gemini";    break;
+    case CT_SPARTAN:protocol = "Spartan";   break;
     default:        protocol = "Nex";       break; /* CT_NEX */
     }
     output_print(error_output, "client %s:%u (%s):\n", address, (unsigned int)port, protocol);

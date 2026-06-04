@@ -106,6 +106,7 @@ Socket allocation
     #define GOPHER_PORT 70
     #define FINGER_PORT 79
     #define GEMINI_PORT 1965
+    #define SPARTAN_PORT 300
     #define NEX_PORT 1900
     #define DOMAIN_NAME "my8bitsoul.eu"
     #define KEY_FILE "/etc/ssl/private/my8bitsoul.eu.key"
@@ -116,6 +117,7 @@ Socket allocation
     #define GOPHER_PORT 8070
     #define FINGER_PORT 8079
     #define GEMINI_PORT 9965
+    #define SPARTAN_PORT 8300
     #define NEX_PORT 9900
     #define DOMAIN_NAME "localhost"
     #define KEY_FILE "localhost.key"
@@ -146,18 +148,24 @@ Socket allocation
 #else
     #define GEMINI_PORT_STRING ":" STRINGIZE(GEMINI_PORT)
 #endif
+#if SPARTAN_PORT == 300
+    #define SPARTAN_PORT_STRING ""
+#else
+    #define SPARTAN_PORT_STRING ":" STRINGIZE(SPARTAN_PORT)
+#endif
 #if NEX_PORT == 1900
     #define NEX_PORT_STRING ""
 #else
     #define NEX_PORT_STRING ":" STRINGIZE(NEX_PORT)
 #endif
 
-#define ACCEPTING_SOCKETS 12
+#define ACCEPTING_SOCKETS 14
 #define ACCEPTING_SOCKET_IS_HTTP(INDEX)   (                 (INDEX) < 2 )
 #define ACCEPTING_SOCKET_IS_HTTPS(INDEX)  ((INDEX) >= 2  && (INDEX) < 4 )
 #define ACCEPTING_SOCKET_IS_GOPHER(INDEX) ((INDEX) >= 4  && (INDEX) < 6 )
 #define ACCEPTING_SOCKET_IS_FINGER(INDEX) ((INDEX) >= 6  && (INDEX) < 8 )
 #define ACCEPTING_SOCKET_IS_GEMINI(INDEX) ((INDEX) >= 8  && (INDEX) < 10)
-#define ACCEPTING_SOCKET_IS_NEX(INDEX)    ((INDEX) >= 10                )
+#define ACCEPTING_SOCKET_IS_SPARTAN(INDEX)((INDEX) >= 10 && (INDEX) < 12)
+#define ACCEPTING_SOCKET_IS_NEX(INDEX)    ((INDEX) >= 12                )
 
 #endif

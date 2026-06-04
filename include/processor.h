@@ -77,6 +77,7 @@ struct Error *processor_print_http(struct ProcessorPrintContext *context, enum E
 struct Error *processor_print_gopher(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va) PRINTFLIKE(4, 0) NODISCARD;
 struct Error *processor_print_finger(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va) PRINTFLIKE(4, 0) NODISCARD;
 struct Error *processor_print_gemini(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va) PRINTFLIKE(4, 0) NODISCARD;
+struct Error *processor_print_spartan(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va) PRINTFLIKE(4, 0) NODISCARD;
 struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va) PRINTFLIKE(4, 0) NODISCARD;
 
 struct ExError processor_process_http(const struct Request *request, const struct Ring *request_stream,
@@ -86,6 +87,8 @@ struct ExError processor_process_gopher(const struct Request *request, const str
 struct ExError processor_process_finger(const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 struct ExError processor_process_gemini(const struct Request *request, const struct Ring *request_stream,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_process_spartan(const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 struct ExError processor_process_nex(const struct Request *request, const struct Ring *request_stream,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
@@ -98,6 +101,8 @@ struct ExError processor_fixed_finger(enum FixedResponse fixed,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 struct ExError processor_fixed_gemini(enum FixedResponse fixed,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
+struct ExError processor_fixed_spartan(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 struct ExError processor_fixed_nex(enum FixedResponse fixed,
     struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream) NODISCARD;
 
@@ -105,6 +110,7 @@ void processor_fixed_http_failsafe(enum FixedResponse fixed, struct ConstValue *
 void processor_fixed_gopher_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
 void processor_fixed_finger_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
 void processor_fixed_gemini_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
+void processor_fixed_spartan_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
 void processor_fixed_nex_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream);
 
 struct ExError processor_construct_response(struct Response *response, struct Ring *response_queue,

@@ -51,6 +51,7 @@ static struct Error *processor_print(int type, struct ProcessorPrintContext *con
     case CT_GOPHER: PGOTO(processor_print_gopher(context, style, resource, format, va));    break;
     case CT_FINGER: PGOTO(processor_print_finger(context, style, resource, format, va));    break;
     case CT_GEMINI: PGOTO(processor_print_gemini(context, style, resource, format, va));    break;
+    case CT_SPARTAN:PGOTO(processor_print_spartan(context, style, resource, format, va));   break;
     default:        PGOTO(processor_print_nex(context, style, resource, format, va));       break; /* CT_NEX */
     }
     error = OK;
@@ -63,15 +64,17 @@ static struct Error *processor_process_generic_footer(int type, struct Processor
 static struct Error *processor_process_generic_footer(int type, struct ProcessorPrintContext *context, const char *resource)
 {
     const char *name;
-    const char *names[4], *references[4];
+    const char *names[5], *references[5];
     unsigned char i = 0;
     PRET(processor_print(type, context, ES_LARGE, NULL, "Footnote"));
     if (type == CT_HTTP)   name = "HTTP";   else { names[i] = "HTTP";   references[i] = "http://"   DOMAIN_NAME HTTP_PORT_STRING;   i++; }
     if (type == CT_GOPHER) name = "Gopher"; else { names[i] = "Gopher"; references[i] = "gopher://" DOMAIN_NAME GOPHER_PORT_STRING; i++; }
     if (type == CT_FINGER) name = "Finger"; else { names[i] = "Finger"; references[i] = "finger://" DOMAIN_NAME FINGER_PORT_STRING; i++; }
     if (type == CT_GEMINI) name = "Gemini"; else { names[i] = "Gemini"; references[i] = "gemini://" DOMAIN_NAME GEMINI_PORT_STRING; i++; }
+    if (type == CT_SPARTAN)name = "Spartan";else { names[i] = "Spartan";references[i] = "spartan://"DOMAIN_NAME SPARTAN_PORT_STRING;i++; }
     if (type == CT_NEX)    name = "Nex";    else { names[i] = "Nex";    references[i] = "nex://"    DOMAIN_NAME NEX_PORT_STRING;    i++; }
-    PRET(processor_print(type, context, ES_NORMAL, NULL, "You are reading the %s version of this page. This page is also available through %s, %s, %s, and %s:", name, names[0], names[1], names[2], names[3]));
+    PRET(processor_print(type, context, ES_NORMAL, NULL, "You are reading the %s version of this page. This page is also available through %s, %s, %s, %s, and %s:",
+        name, names[0], names[1], names[2], names[3], names[4]));
     for (i = 0; i < sizeof(names) / sizeof(*names); i++)
     {
         char reference[64];
@@ -267,6 +270,7 @@ static struct ExError processor_process_specific(int type, const struct Request 
     case CT_GOPHER: EXPRET(processor_process_gopher(request, request_stream, response, response_queue, response_stream));   break;
     case CT_FINGER: EXPRET(processor_process_finger(request, request_stream, response, response_queue, response_stream));   break;
     case CT_GEMINI: EXPRET(processor_process_gemini(request, request_stream, response, response_queue, response_stream));   break;
+    case CT_SPARTAN:EXPRET(processor_process_spartan(request, request_stream, response, response_queue, response_stream));  break;
     default:        EXPRET(processor_process_nex(request, request_stream, response, response_queue, response_stream));      break; /* CT_NEX */
     }
     return EXOK;
@@ -326,6 +330,7 @@ struct ExError processor_fixed(int type, enum FixedResponse fixed,
     case CT_GOPHER: EXPRET(processor_fixed_gopher(fixed, response, response_queue, response_stream));   break;
     case CT_FINGER: EXPRET(processor_fixed_finger(fixed, response, response_queue, response_stream));   break;
     case CT_GEMINI: EXPRET(processor_fixed_gemini(fixed, response, response_queue, response_stream));   break;
+    case CT_SPARTAN:EXPRET(processor_fixed_spartan(fixed, response, response_queue, response_stream));  break;
     default:        EXPRET(processor_fixed_nex(fixed, response, response_queue, response_stream));      break; /* CT_NEX */
     }
     return EXOK;
@@ -339,6 +344,7 @@ void processor_fixed_failsafe(int type, enum FixedResponse fixed, struct ConstVa
     case CT_GOPHER: processor_fixed_gopher_failsafe(fixed, response_stream);    break;
     case CT_FINGER: processor_fixed_finger_failsafe(fixed, response_stream);    break;
     case CT_GEMINI: processor_fixed_gemini_failsafe(fixed, response_stream);    break;
+    case CT_SPARTAN:processor_fixed_spartan_failsafe(fixed, response_stream);   break;
     default:        processor_fixed_nex_failsafe(fixed, response_stream);       break; /* CT_NEX */
     }
 }
