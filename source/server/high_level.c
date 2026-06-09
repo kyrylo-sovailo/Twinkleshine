@@ -5,6 +5,8 @@
 #include "../../include/random.h"
 #include "../../include/tables.h"
 
+#include <netinet/in.h>
+
 #include <limits.h>
 
 static bool get_makes_sense_to_receive(struct Client *client)
@@ -78,8 +80,8 @@ static struct ExError server_process_client_round_recovery(struct Client *client
 {
     const struct ExError EXOK = { OK };
     struct Response response;
-    struct ConstValue response_stream;
-    EXPRET(processor_fixed(client->type, fixed, &response, &client->response_queue, &response_stream));
+    struct Value response_stream;
+    EXPRET(processor_fixed(client->accepting_socket, fixed, &response, &client->response_queue, &response_stream));
     if (client->response_count == 0) client->response = response;
     EXPRET(cryptography_encrypt(client, &response, &response_stream));
     client->response_count++;
@@ -125,8 +127,8 @@ static struct ExError server_process_client_round(struct Client *client, struct 
             EXAGOTO(client_response_stream_size(client) == 0, EEF_CLOSE_LOG);
             EXAGOTO(client->response_queue.size == 0, EEF_CLOSE_LOG);
             EXAGOTO(client->response_count == 0, EEF_CLOSE_LOG);
+            if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket)) poll_finalize(poll);
             client_finalize(client);
-            poll_finalize(poll);
             return EXOK;
         }
     }
@@ -164,8 +166,8 @@ static struct ExError server_process_client_round(struct Client *client, struct 
             EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
             EXAGOTO(client->response_queue.size == 0, EEF_CLOSE_LOG);
             EXAGOTO(client->response_count == 0, EEF_CLOSE_LOG);
+            if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket)) poll_finalize(poll);
             client_finalize(client);
-            poll_finalize(poll);
             return EXOK;
         }
     }
@@ -214,24 +216,33 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
         failure:
         if ((exerror.flags & PARTIAL_EEF_SEND) != 0 && client->ssl == NULL)
         {
-            struct ConstValue response;
-            unsigned char i;
-            processor_fixed_failsafe(client->type, (enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
-            for (i = 0; i < VALUE_PARTS; i++)
+            struct Value response;
+            processor_fixed_failsafe(client->accepting_socket, (enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
+            if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket))
             {
-                if (response.parts[i].size > 0) (void)send(poll->fd, response.parts[i].p, response.parts[i].size, 0);
+                unsigned char i;
+                for (i = 0; i < VALUE_PARTS; i++)
+                {
+                    if (response.parts[i].size == 0) continue;
+                    (void)send(poll->fd, response.parts[i].p, response.parts[i].size, 0);
+                }
+            }
+            else
+            {
+                (void)sendto(poll->fd, response.parts[0].p, response.parts[0].size, 0,
+                    (struct sockaddr*)&client->address, (client->address.ss_family == AF_INET6) ? sizeof(struct in6_addr) : sizeof(struct in_addr));
             }
         }
         if ((exerror.flags & PARTIAL_EEF_SHUTDOWN) != 0)
         {
             /* Not intercepted? Too bad */
+            if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket)) poll_finalize(poll);
             client_finalize(client);
-            poll_finalize(poll);
         }
         if ((exerror.flags & PARTIAL_EEF_CLOSE) != 0)
         {
+            if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket)) poll_finalize(poll);
             client_finalize(client);
-            poll_finalize(poll);
         }
         if ((exerror.flags & PARTIAL_EEF_LOG) != 0)
         {
@@ -266,7 +277,7 @@ static struct Error *server_process_clients(struct ClientBuffer *clients, struct
     now = time(NULL);
 
     /* Accept new connections */
-    PRET(server_accept_connections(clients, polls, *utilization, now));
+    PRET(server_accept_traffic(clients, polls, *utilization, now));
 
     /* Process events */
     *remaining = INT_MAX;
@@ -274,7 +285,9 @@ static struct Error *server_process_clients(struct ClientBuffer *clients, struct
     for (client_i = clients->p; client_i < clients->p + clients->size; client_i++)
     {
         const size_t shuffle_index = client_i->shuffle_index;
-        PRET(server_process_client(clients->p + shuffle_index, polls->p + shuffle_index + ACCEPTING_SOCKETS, remaining, now));
+        struct Client *client = clients->p + shuffle_index;
+        struct pollfd *poll = ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket) ? (polls->p + shuffle_index + ACCEPTING_SOCKETS) : (polls->p + client->accepting_socket);
+        PRET(server_process_client(client, poll, remaining, now));
     }
     clients_remove_finalized(clients, polls);
 

@@ -96,7 +96,7 @@ struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum En
 }
 
 struct ExError processor_process_nex(const struct Request *request, const struct Ring *request_stream,
-    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
 {
     const struct ExError EXOK = { OK };
     EXPRET(processor_process_finger(request, request_stream, response, response_queue, response_stream));
@@ -104,14 +104,14 @@ struct ExError processor_process_nex(const struct Request *request, const struct
 }
 
 struct ExError processor_fixed_nex(enum FixedResponse fixed,
-    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
 {
     const struct ExError EXOK = { OK };
     EXPRET(processor_fixed_finger(fixed, response, response_queue, response_stream));
     return EXOK;
 }
 
-void processor_fixed_nex_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream)
+void processor_fixed_nex_failsafe(enum FixedResponse fixed, struct Value *response_stream)
 {
     processor_fixed_finger_failsafe(fixed, response_stream);
 }

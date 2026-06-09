@@ -54,3 +54,10 @@ struct ExError parser_parse_gopher(struct Parser *parser, struct Request *reques
     }
     return EXOK;
 }
+
+struct ExError parser_parse_nex(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
+{
+    const struct ExError EXOK = { OK };
+    EXPRET(parser_parse_gopher(parser, request, request_stream));
+    return EXOK;
+}

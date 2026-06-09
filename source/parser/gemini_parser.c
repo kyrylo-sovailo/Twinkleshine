@@ -4,11 +4,14 @@
 #include "../../include/ring.h"
 #include "../../include/tables.h"
 
-static struct ExError parser_parse_gemini_part(struct Parser *parser, struct Request *request, const struct ValuePart *part)
+static struct ExError parser_parse_gemini_guppy_part(struct Parser *parser, struct Request *request, const struct ValuePart *part, bool mode_guppy)
 {
     const struct ExError EXOK = { OK };
     const char *p;
     const char gemini[] = "gemini://";
+    const char guppy[] = "guppy://";
+    const char *gemini_guppy = mode_guppy ? guppy : gemini;
+    const size_t gemini_guppy_size = mode_guppy ? (sizeof(guppy) - 1) : (sizeof(gemini) - 1);
     for (p = part->p; p < part->p + part->size; p++, request->stream_size++)
     {
         const char c = *p;
@@ -16,10 +19,10 @@ static struct ExError parser_parse_gemini_part(struct Parser *parser, struct Req
         switch (parser->state)
         {
         case RPS_WAIT_PROTOCOL_END:
-            if (c == gemini[request->protocol.size])
+            if (c == gemini_guppy[request->protocol.size])
             {
                 request->protocol.size++;
-                if (request->protocol.size == sizeof(gemini) - 1) { request->method.offset = sizeof(gemini) - 1; parser->state = RPS_WAIT_METHOD_END; }
+                if (request->protocol.size == gemini_guppy_size) { request->method.offset = gemini_guppy_size; parser->state = RPS_WAIT_METHOD_END; }
             }
             else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
@@ -52,7 +55,7 @@ static struct ExError parser_parse_gemini_part(struct Parser *parser, struct Req
     return EXOK;
 }
 
-struct ExError parser_parse_gemini(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
+static struct ExError parser_parse_gemini_guppy(struct Parser *parser, struct Request *request, const struct Ring *request_stream, bool mode_guppy)
 {
     const struct ExError EXOK = { OK };
     struct ValueLocation not_parsed_location;
@@ -66,11 +69,25 @@ struct ExError parser_parse_gemini(struct Parser *parser, struct Request *reques
     EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF_CLOSE_LOG_DIE);
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        EXPRET(parser_parse_gemini_part(parser, request, &not_parsed.parts[i]));
+        EXPRET(parser_parse_gemini_guppy_part(parser, request, &not_parsed.parts[i], mode_guppy));
     }
     if (request_stream->size >= MAX_REQUEST_SIZE)
     {
         EXARET0(parser->state == RPS_END, "Actual request size exceeded", EEF_SEND_SHUTDOWN_LOG(FR_MAX_REQUEST_HEADER_SIZE));
     }
+    return EXOK;
+}
+
+struct ExError parser_parse_gemini(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
+{
+    const struct ExError EXOK = { OK };
+    EXPRET(parser_parse_gemini_guppy(parser, request, request_stream, false));
+    return EXOK;
+}
+
+struct ExError parser_parse_guppy(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
+{
+    const struct ExError EXOK = { OK };
+    EXPRET(parser_parse_gemini_guppy(parser, request, request_stream, true));
     return EXOK;
 }

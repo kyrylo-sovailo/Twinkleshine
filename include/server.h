@@ -5,12 +5,14 @@
 #include "../commonlib/include/macro.h"
 #include "../include/extended_error.h"
 
+#include <sys/socket.h>
+
 #include <stddef.h>
 #include <time.h>
 
 struct Client;
 struct ClientBuffer;
-struct ConstValue;
+struct Value;
 struct PollBuffer;
 struct Ring;
 
@@ -28,13 +30,15 @@ void server_finalize(struct ClientBuffer *clients, struct PollBuffer *polls);
 
 /* low_level.c */
 /* Sends the given value (Failure -> close and log) */
-struct Error *server_send_value(struct ConstValue *value, int fd, enum ConnectionFlag *flags) NODISCARD;
+struct Error *server_send_value(struct Value *value, int fd, enum ConnectionFlag *flags) NODISCARD;
+/* Sends the message */
+struct ExError server_send_message(struct Value *value, int fd, const struct sockaddr *address, unsigned int first_chunk, struct Value *chunks, size_t last_chunk_size) NODISCARD;
 /* Receives the given amount of bytes to ring */
 struct ExError server_receive_value(struct Ring *ring, int fd, size_t size, enum ConnectionFlag *flags) NODISCARD;
 
 /* accept.c */
 /* Processes accepting sockets and creates new clients (Failure -> die) */
-struct Error *server_accept_connections(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now) NODISCARD;
+struct Error *server_accept_traffic(struct ClientBuffer *clients, struct PollBuffer *polls, double utilization, time_t now) NODISCARD;
 
 /* receive.c */
 /* Allocates client's input buffer and reads MIN_AVAILABLE_REQUEST_STREAM to MAX_REQUEST_STREAM_SIZE bytes of data into it */

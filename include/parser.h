@@ -55,11 +55,13 @@ struct Parser
 };
 
 /* Feed buffer to parser */
-struct ExError parser_parse(int type, struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse(unsigned char accepting_socket, struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 struct ExError parser_parse_http(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 struct ExError parser_parse_gopher(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 struct ExError parser_parse_finger(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 struct ExError parser_parse_gemini(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 struct ExError parser_parse_spartan(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse_nex(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+struct ExError parser_parse_guppy(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
 
 #endif

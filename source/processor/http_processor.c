@@ -187,10 +187,10 @@ struct Error *processor_print_http(struct ProcessorPrintContext *context, enum E
 }
 
 struct ExError processor_process_http(const struct Request *request, const struct Ring *request_stream,
-    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
 {
     const struct ExError EXOK = { OK };
-    const struct ConstValue zero = ZERO_INIT;
+    const struct Value zero = ZERO_INIT;
     struct Value method, resource, protocol;
     bool keep_alive;
     
@@ -229,27 +229,27 @@ struct ExError processor_process_http(const struct Request *request, const struc
     response_stream->parts[1].size = g_internal_buffer_two.size;
 
     EXPRET(processor_construct_response(response, response_queue,
-        value_const_size(response_stream), keep_alive, &method, &resource, &protocol));
+        value_size(response_stream), keep_alive, 0, 0, &method, &resource, &protocol));
 
     return EXOK;
 }
 
 struct ExError processor_fixed_http(enum FixedResponse fixed,
-    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
 {
     const struct ExError EXOK = { OK };
     const struct Value zero = ZERO_INIT;
 
     processor_fixed_http_failsafe(fixed, response_stream);
     EXPRET(processor_construct_response(response, response_queue,
-        response_stream->parts[0].size, false, &zero, &zero, &zero));
+        response_stream->parts[0].size, false, 0, 0, &zero, &zero, &zero));
 
     return EXOK;
 }
 
-void processor_fixed_http_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream)
+void processor_fixed_http_failsafe(enum FixedResponse fixed, struct Value *response_stream)
 {
-    const struct ConstValue zero = ZERO_INIT;
+    const struct Value zero = ZERO_INIT;
     struct CharBuffer *fixed_string;
     switch (fixed)
     {

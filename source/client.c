@@ -6,8 +6,11 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-struct ConstValue g_short_response_stream = ZERO_INIT;
+struct Value g_short_response_stream = ZERO_INIT;
 struct Client *g_short_response_stream_owner = NULL;
+char g_short_request_message[2048];
+struct Client *g_short_request_message_owner = NULL;
+size_t g_short_request_message_size = 0;
 
 void clients_shuffle(struct ClientBuffer *clients)
 {
@@ -34,7 +37,8 @@ void clients_remove_finalized(struct ClientBuffer *clients, struct PollBuffer *p
     struct pollfd *poll_i, *surviving_poll_i;
     for (surviving_client_i = client_i = clients->p, surviving_poll_i = poll_i = polls->p + ACCEPTING_SOCKETS; client_i < clients->p + clients->size; client_i++, poll_i++)
     {
-        if (poll_i->fd < 0) continue;
+        const bool dead = poll_i->fd < 0 && ACCEPTING_SOCKET_IS_CONNECTION(client_i->accepting_socket);
+        if (!dead) continue;
         if (client_i == g_short_response_stream_owner)
         {
             g_short_response_stream_owner -= (size_t)(client_i - surviving_client_i); /* Short buffer owner is guaranteed to not be alive */
@@ -53,9 +57,10 @@ void clients_remove_finalized(struct ClientBuffer *clients, struct PollBuffer *p
 
 void client_finalize(struct Client *client)
 {
-    if (client == g_short_response_stream_owner)
+    client->accepting_socket = 0;
+    if (client == g_short_request_message_owner)
     {
-        const struct ConstValue zero = ZERO_INIT;
+        const struct Value zero = ZERO_INIT;
         g_short_response_stream = zero;
         g_short_response_stream_owner = NULL;
         processor_free();
@@ -73,7 +78,7 @@ void poll_finalize(struct pollfd *poll)
 size_t client_response_stream_size(const struct Client *client)
 {
     size_t size = client->response_stream.size;
-    if (client == g_short_response_stream_owner) size += value_const_size(&g_short_response_stream);
+    if (client == g_short_response_stream_owner) size += value_size(&g_short_response_stream);
     return size;
 }
 
@@ -84,7 +89,7 @@ static void polls_finalize_element(struct pollfd *poll) { poll_finalize(poll); }
 struct Error *clients_append(struct ClientBuffer *buffer, const struct Client *data, size_t size)
 {
     struct Error *error;
-    bool short_response_stream_present = g_short_response_stream_owner != NULL;
+    const bool short_response_stream_present = g_short_response_stream_owner != NULL;
     size_t short_response_stream_index;
     if (short_response_stream_present) short_response_stream_index = (size_t)(g_short_response_stream_owner - buffer->p);
     switch (sizeof(*buffer->p))

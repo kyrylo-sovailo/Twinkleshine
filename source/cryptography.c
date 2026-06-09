@@ -230,7 +230,7 @@ struct ExError cryptography_decrypt(struct Client *client, size_t old_request_st
     return EXOK;
 }
 
-struct ExError cryptography_encrypt(struct Client *client, const struct Response *response, struct ConstValue *response_stream)
+struct ExError cryptography_encrypt(struct Client *client, const struct Response *response, struct Value *response_stream)
 {
     const struct ExError EXOK = { OK };
     size_t old_stream_size, new_stream_size, encrypted_value_size;

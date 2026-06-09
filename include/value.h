@@ -22,23 +22,10 @@ struct ValuePart
     size_t size;
 };
 
-/* Memory location */
+/* Constant memory location */
 struct Value
 {
     struct ValuePart parts[VALUE_PARTS];
-};
-
-/* Part of constant memory location */
-struct ConstValuePart
-{
-    const char *p;
-    size_t size;
-};
-
-/* Constant memory location */
-struct ConstValue
-{
-    struct ConstValuePart parts[VALUE_PARTS];
 };
 
 /* Compares two values */
@@ -63,12 +50,10 @@ bool value_to_uint(const struct Value *a, unsigned int *result) NODISCARD;
 
 /* Convenience functions */
 size_t value_size(const struct Value *value);
-size_t value_const_size(const struct ConstValue *value);
+void value_first(struct Value *value, size_t size);
+void value_second(struct Value *value, size_t size);
 void value_read(const struct Value *value, char *destination);
 void value_write(const struct Value *value, const char *source);
-
-/* Conversion to constant values */
-void value_to_const_value(struct ConstValue *const_value, const struct Value *value);
-void value_to_const_value_part(struct ConstValuePart *const_part, const struct ValuePart *part);
+void value_to_value_part(struct ValuePart *part, const struct Value *value, char *buffer);
 
 #endif

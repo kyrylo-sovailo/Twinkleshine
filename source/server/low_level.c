@@ -1,14 +1,16 @@
 #include "../../include/server.h"
 #include "../../commonlib/include/error.h"
-#include "../../include/value.h"
+#include "../../include/constants.h"
 #include "../../include/ring.h"
+#include "../../include/value.h"
 
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <errno.h>
 
-struct Error *server_send_value(struct ConstValue *value, int fd, enum ConnectionFlag *flags)
+struct Error *server_send_value(struct Value *value, int fd, enum ConnectionFlag *flags)
 {
     /* connection_saturated is a bit redundant because one may just check value size, but I'll keep the flag style to be similar with receive_value() */
     unsigned char i;
@@ -32,6 +34,45 @@ struct Error *server_send_value(struct ConstValue *value, int fd, enum Connectio
         }
     }
     return OK;
+}
+
+struct ExError server_send_message(struct Value *value, int fd, const struct sockaddr *address, unsigned int first_chunk, struct Value *chunks, size_t last_chunk_size)
+{
+    const struct ExError EXOK = { OK };
+    const unsigned int chunk_number = (unsigned int)value_size(chunks);
+    const unsigned int last_chunk = first_chunk + chunk_number - 1;
+    const unsigned int second_last_chunk = first_chunk + chunk_number - 2;
+    const size_t second_last_chunk_size = value_size(value) - last_chunk_size - CHUNK_SIZE * (chunk_number - 2);
+    unsigned int chunk = first_chunk, sent = 0, acknowledged = 0;
+    struct Value *local_value = value;
+    unsigned char i;
+
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        signed char *p;
+        for (p = (signed char*)chunks->parts[i].p; p < (signed char*)chunks->parts[i].p + chunks->parts[i].size; p++, chunk++)
+        {
+            const size_t chunk_size = (chunk == second_last_chunk) ? second_last_chunk_size : ((chunk == last_chunk) ? last_chunk_size : CHUNK_SIZE);
+            char buffer[CHUNK_SIZE];
+            struct Value chunk; struct ValuePart chunk_part;
+            
+            EXARET(*p < CHUNK_SEND_REPEATS, EEF_SHUTDOWN_LOG);
+            if (*p < 0) { acknowledged++; continue; }
+            chunk = *local_value;
+            value_first(&chunk, chunk_size);
+            value_to_value_part(&chunk_part, &chunk, buffer);
+            (void)sendto(fd, chunk_part.p, chunk_size, 0, address, (address->sa_family == AF_INET6) ? sizeof(struct in6_addr) : sizeof(struct in_addr));
+            value_second(local_value, chunk_size);
+            (*p)++;
+            sent++;
+            if (sent == CHUNK_SEND_SIMULTANEOUS) return EXOK;
+        }
+    }
+    if (acknowledged == chunk_number)
+    {
+        for (i = 0; i < VALUE_PARTS; i++) value->parts[i].size = 0;
+    }
+    return EXOK;
 }
 
 struct ExError server_receive_value(struct Ring *ring, int fd, size_t size, enum ConnectionFlag *flags)

@@ -46,10 +46,10 @@ struct Error *processor_print_gemini(struct ProcessorPrintContext *context, enum
 }
 
 struct ExError processor_process_gemini(const struct Request *request, const struct Ring *request_stream,
-    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
 {
     const struct ExError EXOK = { OK };
-    const struct ConstValue zero = ZERO_INIT;
+    const struct Value zero = ZERO_INIT;
     struct Value method, resource, protocol;
     
     *response_stream = zero;
@@ -60,27 +60,27 @@ struct ExError processor_process_gemini(const struct Request *request, const str
     EXPRETF(ring_get(request_stream, &request->resource, false, &resource), EEF_CLOSE_LOG_DIE);
     EXPRETF(ring_get(request_stream, &request->protocol, false, &protocol), EEF_CLOSE_LOG_DIE);
     EXPRET(processor_construct_response(response, response_queue,
-        response_stream->parts[0].size, false, &method, &resource, &protocol));
+        response_stream->parts[0].size, false, 0, 0, &method, &resource, &protocol));
 
     return EXOK;
 }
 
 struct ExError processor_fixed_gemini(enum FixedResponse fixed,
-    struct Response *response, struct Ring *response_queue, struct ConstValue *response_stream)
+    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
 {
     const struct ExError EXOK = { OK };
     const struct Value zero = ZERO_INIT;
 
     processor_fixed_gemini_failsafe(fixed, response_stream);
     EXPRET(processor_construct_response(response, response_queue,
-        response_stream->parts[0].size, false, &zero, &zero, &zero));
+        response_stream->parts[0].size, false, 0, 0, &zero, &zero, &zero));
 
     return EXOK;
 }
 
-void processor_fixed_gemini_failsafe(enum FixedResponse fixed, struct ConstValue *response_stream)
+void processor_fixed_gemini_failsafe(enum FixedResponse fixed, struct Value *response_stream)
 {
-    const struct ConstValue zero = ZERO_INIT;
+    const struct Value zero = ZERO_INIT;
     const char *fixed_string;
     switch (fixed)
     {
@@ -96,6 +96,6 @@ void processor_fixed_gemini_failsafe(enum FixedResponse fixed, struct ConstValue
     default:                                fixed_string = "42 Unknown error" CRLF;                         break;
     }
     *response_stream = zero;
-    response_stream->parts[0].p = fixed_string;
+    response_stream->parts[0].p = (char*)fixed_string;
     response_stream->parts[0].size = strlen(fixed_string);
 }

@@ -10,16 +10,6 @@
 #include <sys/socket.h>
 #include <time.h>
 
-enum ClientType
-{
-    CT_HTTP,
-    CT_GOPHER,
-    CT_FINGER,
-    CT_GEMINI,
-    CT_SPARTAN,
-    CT_NEX
-};
-
 enum CryptographyState
 {
     CS_PENDING_HANDSHAKE = 0,   /* Handshake in progress */
@@ -30,7 +20,7 @@ enum CryptographyState
 
 struct Client
 {
-    enum ClientType type;
+    unsigned char accepting_socket;
 
     /* Input */
     struct Ring request_stream;                 /* Buffer for incoming data, contains many request contents */
@@ -66,8 +56,11 @@ DECLARE_BUFFER(struct pollfd, PollBuffer)
 DECLARE_BUFFER_APPEND(struct pollfd, PollBuffer, polls_)
 DECLARE_BUFFER_FINALIZE(struct pollfd, PollBuffer, polls_)
 
-extern struct ConstValue g_short_response_stream;       /* Short-term buffer that replaces some client's response_stream */
+extern struct Value g_short_response_stream;       /* Short-term buffer that replaces some client's response_stream */
 extern struct Client *g_short_response_stream_owner;    /* Which client does g_short_response_stream belong to */
+extern char g_short_request_message[2048];              /* Buffer that replaces some client's request_stream (2048 because mandated by Guppy) */
+extern struct Client *g_short_request_message_owner;    /* Which client does g_request_message belong to */
+extern size_t g_short_request_message_size;             /* Size of g_request_message */
 
 /* Sets the value shuffle index of N first clients to a random unique value */
 void clients_shuffle(struct ClientBuffer *clients);

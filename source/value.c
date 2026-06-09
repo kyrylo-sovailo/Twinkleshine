@@ -146,22 +146,6 @@ bool value_to_uint(const struct Value *a, unsigned int *result)
     return true;
 }
 
-void value_to_const_value(struct ConstValue *const_value, const struct Value *value)
-{
-    unsigned char i;
-    for (i = 0; i < VALUE_PARTS; i++)
-    {
-        const_value->parts[i].p = value->parts[i].p;
-        const_value->parts[i].size = value->parts[i].size;
-    }
-}
-
-void value_to_const_value_part(struct ConstValuePart *const_part, const struct ValuePart *part)
-{
-    const_part->p = part->p;
-    const_part->size = part->size;
-}
-
 size_t value_size(const struct Value *value)
 {
     size_t sum = 0;
@@ -170,12 +154,24 @@ size_t value_size(const struct Value *value)
     return sum;
 }
 
-size_t value_const_size(const struct ConstValue *value)
+void value_first(struct Value *value, size_t size)
 {
-    size_t sum = 0;
     unsigned char i;
-    for (i = 0; i < VALUE_PARTS; i++) sum += value->parts[i].size;
-    return sum;
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        if (value->parts[i].size > size) { value->parts[i].size = size; size = 0; }
+        else { size -= value->parts[i].size; }
+    }
+}
+
+void value_second(struct Value *value, size_t size)
+{
+    unsigned char i;
+    for (i = 0; i < VALUE_PARTS && size > 0; i++)
+    {
+        if (value->parts[i].size > size) { value->parts[i].p += size; value->parts[i].size -= size; size = 0; }
+        else { size -= value->parts[i].size; value->parts[i].size = 0; }
+    }
 }
 
 void value_read(const struct Value *value, char *destination)
@@ -196,4 +192,17 @@ void value_write(const struct Value *value, const char *source)
         memcpy(value->parts[i].p, source, value->parts[i].size);
         source += value->parts[i].size;
     }
+}
+
+void value_to_value_part(struct ValuePart *part, const struct Value *value, char *buffer)
+{
+    const size_t size = value_size(value);
+    unsigned char i;
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        if (value->parts[i].size == size) { *part = value->parts[i]; return; }
+    }
+    value_read(value, buffer);
+    part->p = buffer;
+    part->size = size;
 }

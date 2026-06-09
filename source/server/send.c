@@ -4,6 +4,7 @@
 #include "../../include/output.h"
 #include "../../include/ring.h"
 #include "../../include/value.h"
+#include "../../include/utility.h"
 
 /* Pops and prints metadata of the current response (Failure -> close, log, and die) */
 static struct Error *server_pop_response(struct Client *client) NODISCARD;
@@ -67,9 +68,21 @@ static struct ExError server_send_short_response_stream(struct Client *client, i
     size_t old_value_size, new_value_size, sent_stream_size;
 
     /* Send chunk of data */
-    old_value_size = value_const_size(&g_short_response_stream);
-    EXPRETF(server_send_value(&g_short_response_stream, fd, flags), EEF_CLOSE_LOG);
-    new_value_size = value_const_size(&g_short_response_stream);
+    old_value_size = value_size(&g_short_response_stream);
+    if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket))
+    {
+        EXPRETF(server_send_value(&g_short_response_stream, fd, flags), EEF_CLOSE_LOG);
+    }
+    else
+    {
+        const size_t last_chunk_size = int_length(client->response.first_chunk + client->response.chunks.size - 1) + 2;
+        struct ValueLocation chunks_location; struct Value chunks;
+        chunks_location.offset = sizeof(struct Response) + client->response.chunks.offset;
+        chunks_location.size = client->response.chunks.offset;    
+        EXPRETF(ring_get(&client->response_stream, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
+        EXPRET(server_send_message(&g_short_response_stream, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
+    }
+    new_value_size = value_size(&g_short_response_stream);
     sent_stream_size = old_value_size - new_value_size;
     if (new_value_size == 0)
     {
@@ -88,15 +101,26 @@ static struct ExError server_send_long_output_buffer(struct Client *client, int 
 static struct ExError server_send_long_output_buffer(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
 {
     const struct ExError EXOK = { OK };
-    struct ConstValue value; struct Value nonconst_value;
+    struct Value value;
     size_t old_value_size, new_value_size, sent_stream_size;
     
     /* Send chunk of data */
-    ring_get_all(&client->response_stream, &nonconst_value);
-    value_to_const_value(&value, &nonconst_value);
-    old_value_size = value_const_size(&value);
-    EXPRETF(server_send_value(&value, fd, flags), EEF_CLOSE_LOG);
-    new_value_size = value_const_size(&value);
+    ring_get_all(&client->response_stream, &value);
+    old_value_size = value_size(&value);
+    if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket))
+    {
+        EXPRETF(server_send_value(&value, fd, flags), EEF_CLOSE_LOG);
+    }
+    else
+    {
+        const size_t last_chunk_size = int_length(client->response.first_chunk + client->response.chunks.size - 1) + 2;
+        struct ValueLocation chunks_location; struct Value chunks;
+        chunks_location.offset = sizeof(struct Response) + client->response.chunks.offset;
+        chunks_location.size = client->response.chunks.offset;    
+        EXPRETF(ring_get(&client->response_stream, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
+        EXPRET(server_send_message(&value, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
+    }
+    new_value_size = value_size(&value);
     sent_stream_size = old_value_size - new_value_size;
     EXPRETF(ring_pop(&client->response_stream, sent_stream_size), EEF_CLOSE_LOG_DIE);
 
@@ -110,10 +134,11 @@ struct ExError server_send_data(struct Client *client, int fd, time_t now, enum 
 {
     const struct ExError EXOK = { OK };
     size_t short_response_stream_size = 0;
+
     if (client == g_short_response_stream_owner)
     {
         EXPRET(server_send_short_response_stream(client, fd, now, flags));
-        short_response_stream_size = value_const_size(&g_short_response_stream);
+        short_response_stream_size = value_size(&g_short_response_stream);
     }
     if ((*flags & CF_SATURATED) == 0 && client->response_stream.size > 0)
     {

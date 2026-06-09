@@ -5,12 +5,12 @@
 #include "../../include/ring.h"
 
 /* Flushes short output buffer into long output buffer */
-static struct ExError server_reserve_and_push_value(struct Ring *response_stream, const struct ConstValue *data) NODISCARD;
-static struct ExError server_reserve_and_push_value(struct Ring *response_stream, const struct ConstValue *data)
+static struct ExError server_reserve_and_push_value(struct Ring *response_stream, const struct Value *data) NODISCARD;
+static struct ExError server_reserve_and_push_value(struct Ring *response_stream, const struct Value *data)
 {
     const struct ExError EXOK = { OK };
     unsigned char i;
-    EXPRETF(ring_reserve(response_stream, response_stream->size + value_const_size(data)), EEF_CLOSE_LOG);
+    EXPRETF(ring_reserve(response_stream, response_stream->size + value_size(data)), EEF_CLOSE_LOG);
     for (i = 0; i < VALUE_PARTS; i++)
     {
         EXPRETF(ring_push_write(response_stream, data->parts[i].size, data->parts[i].p), EEF_CLOSE_LOG_DIE);
@@ -22,17 +22,17 @@ struct ExError server_process_data(struct Client *client, time_t now)
 {
     const struct ExError EXOK = { OK };
     struct Response response;
-    struct ConstValue response_stream;
+    struct Value response_stream;
 
     /* Parse request, quit if the request is incomplete */
-    EXPRET(parser_parse(client->type, &client->parser, &client->request, &client->request_stream));
+    EXPRET(parser_parse(client->accepting_socket, &client->parser, &client->request, &client->request_stream));
     if (client->parser.state != RPS_END) return EXOK;
     client->last_request_complete = now;
 
     /* Flush short output buffer to long output buffer because we are about to get another portion of data to send */
     if (g_short_response_stream_owner != NULL)
     {
-        const struct ConstValue zero = ZERO_INIT;
+        const struct Value zero = ZERO_INIT;
         EXPRET(server_reserve_and_push_value(&g_short_response_stream_owner->response_stream, &g_short_response_stream));
         g_short_response_stream = zero;
         g_short_response_stream_owner = NULL;
@@ -40,7 +40,7 @@ struct ExError server_process_data(struct Client *client, time_t now)
     }
 
     /* Generate response */
-    EXPRET(processor_process(client->type, &client->request, &client->request_stream, &response, &client->response_queue, &response_stream)); /* TODO: response queue is the odd one out */
+    EXPRET(processor_process(client->accepting_socket, &client->request, &client->request_stream, &response, &client->response_queue, &response_stream)); /* TODO: response queue is the odd one out */
     EXPRETF(ring_pop(&client->request_stream, client->request.stream_size), EEF_CLOSE_LOG_DIE);
     if (client->response_count == 0) client->response = response;
 
