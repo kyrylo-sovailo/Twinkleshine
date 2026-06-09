@@ -20,13 +20,33 @@ static void memset_alt(char *destination, size_t n)
     for (i = 0; i < n; i++) destination[i] = (i & 1) ? '0' : 'O';
 }
 
+static bool paragraph(enum EntryStyle style)
+{
+    switch (style)
+    {
+    case ES_NORMAL:
+    case ES_QUOTE:
+    case ES_LARGE:
+    case ES_LARGER:
+    case ES_LARGEST:
+    case ES_HEADER:
+        return true;
+    default:
+        return false;
+    }
+}
+
 struct Error *processor_print_gopher(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
+    /* Pre-prefix */
     size_t old_size, line_size;
     char *p;
+    context->list_index = (style == ES_ENUMERATION) ? (context->list_index + 1) : 0;
+    if (paragraph(style) || paragraph(context->previous_style)) PRET(string_append_mem(context->one, STRING_STRLEN("i" FAKE_ENDLINE)));
+    context->previous_style = style;
+    old_size = context->one->size;
     
     /* Prefix */
-    context->list_index = (style == ES_ENUMERATION) ? (context->list_index + 1) : 0;
     switch (style)
     {
     case ES_INITIALIZE: context->one->size = 0; context->two->size = 0; return OK;
@@ -35,23 +55,11 @@ struct Error *processor_print_gopher(struct ProcessorPrintContext *context, enum
     case ES_ENUMERATION: PRET(string_print_append(context->one, "i %u. ", context->list_index)); break;
     case ES_QUOTE: PRET(string_append_mem(context->one, STRING_STRLEN("i > "))); break;
     case ES_LARGE:
-    case ES_LARGER:
-        if (context->one->size > 0) PRET(string_append_mem(context->one, STRING_STRLEN("i" FAKE_ENDLINE)));
-        old_size = context->one->size;
-        PRET(string_append_mem(context->one, STRING_STRLEN("i")));
-        break;
+    case ES_LARGER: PRET(string_append_mem(context->one, STRING_STRLEN("i"))); break;
     case ES_LARGEST:
-    case ES_HEADER:
-        if (context->one->size > 0) PRET(string_append_mem(context->one, STRING_STRLEN("i" FAKE_ENDLINE)));
-        old_size = context->one->size;
-        PRET(string_append_mem(context->one, STRING_STRLEN("iO ")));
-        break;
-    case ES_INTERNAL_REFERENCE:
-        PRET(string_print_append(context->one, "1"));
-        break;
-    default:
-        PRET(string_append_mem(context->one, STRING_STRLEN("i")));
-        break;
+    case ES_HEADER: PRET(string_append_mem(context->one, STRING_STRLEN("iO "))); break;
+    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->one, "1")); break;
+    default: PRET(string_append_mem(context->one, STRING_STRLEN("i"))); break;
     }
     
     /* Text */

@@ -38,6 +38,12 @@ static void print_time_since_startup(char buffer[64])
     else /* if (seconds > 0) */ sprintf(buffer, "%u %s", seconds, seconds_str);
 }
 
+/*
+Space policy:
+ES_NORMAL, ES_LARGE, ES_LARGER, ES_LARGEST, ES_HEADER, ES_QUOTE are considered paragraphs
+HTTP: paragraphs use <p>, others are plaintext
+Others: maintain space before, after and between paragraphs
+*/
 static struct Error *processor_print(unsigned char accepting_socket, struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, ...) PRINTFLIKE(5, 6) NODISCARD;
 static struct Error *processor_print(unsigned char accepting_socket, struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, ...)
 {

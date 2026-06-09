@@ -10,10 +10,31 @@
 
 #define ENDLINE "\r\n" /* Specification says CRLF */
 
+static bool paragraph(enum EntryStyle style)
+{
+    switch (style)
+    {
+    case ES_NORMAL:
+    case ES_QUOTE:
+    case ES_LARGE:
+    case ES_LARGER:
+    case ES_LARGEST:
+    case ES_HEADER:
+        return true;
+    default:
+        return false;
+    }
+}
+
 struct Error *processor_print_finger(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
+    /* Pre-prefix */
     size_t old_size, line_size;
     char *p;
+    context->list_index = (style == ES_ENUMERATION) ? (context->list_index + 1) : 0;
+    if (paragraph(style) || paragraph(context->previous_style)) PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
+    context->previous_style = style;
+    old_size = context->one->size;
     
     /* Prefix */
     context->list_index = (style == ES_ENUMERATION) ? (context->list_index + 1) : 0;
@@ -25,15 +46,9 @@ struct Error *processor_print_finger(struct ProcessorPrintContext *context, enum
     case ES_ENUMERATION: PRET(string_print_append(context->one, " %u. ", context->list_index)); break;
     case ES_QUOTE: PRET(string_append_mem(context->one, STRING_STRLEN(" > "))); break;
     case ES_LARGE:
-    case ES_LARGER:
-        if (context->one->size > 0) PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
-        old_size = context->one->size;
-        break;
+    case ES_LARGER: break;
     case ES_LARGEST:
-    case ES_HEADER:
-        if (context->one->size > 0) PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
-        old_size = context->one->size; PRET(string_append_mem(context->one, STRING_STRLEN("# ")));
-        break;
+    case ES_HEADER: PRET(string_append_mem(context->one, STRING_STRLEN("# "))); break;
     default: break;
     }
     

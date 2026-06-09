@@ -121,10 +121,12 @@ void processor_module_finalize_http(void)
 
 struct Error *processor_print_http(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
-    /* Prefix */
+    /* Pre-prefix*/
     if (context->previous_style == ES_ITEMIZE && style != ES_ITEMIZE) { PRET(string_append_mem(context->two, STRING_STRLEN("</ol>" ENDLINE))); }
     if (context->previous_style == ES_ENUMERATION && style != ES_ENUMERATION) { PRET(string_append_mem(context->two, STRING_STRLEN("</ul>" ENDLINE))); }
     context->previous_style = style;
+    
+    /* Prefix */
     switch (style)
     {
     case ES_INITIALIZE:
@@ -159,12 +161,12 @@ struct Error *processor_print_http(struct ProcessorPrintContext *context, enum E
         break;
     }
     case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("<blockquote>" ENDLINE "<p>"))); break;
-    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("<h3>"))); break;
-    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("<h2>"))); break;
-    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("<h1>"))); break;
+    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("<h3>" ENDLINE "<p>"))); break;
+    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("<h2>" ENDLINE "<p>"))); break;
+    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("<h1>" ENDLINE "<p>"))); break;
     case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("<header>" ENDLINE "<h1>"))); break;
-    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p><a href=\"/%s\">", resource)); break;
-    case ES_EXTERNAL_REFERENCE: PRET(string_print_append(context->two, "<p><a href=\"%s\">", resource)); break;
+    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->two, "<a href=\"/%s\">", resource)); break;
+    case ES_EXTERNAL_REFERENCE: PRET(string_print_append(context->two, "<a href=\"%s\">", resource)); break;
     }
     
     /* Text */
@@ -177,11 +179,11 @@ struct Error *processor_print_http(struct ProcessorPrintContext *context, enum E
     case ES_ITEMIZE:
     case ES_ENUMERATION: PRET(string_append_mem(context->two, STRING_STRLEN("</li>" ENDLINE))); break;
     case ES_QUOTE: PRET(string_append_mem(context->two, STRING_STRLEN("</p>" ENDLINE "</blockquote>" ENDLINE))); break;
-    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("</h3>" ENDLINE))); break;
-    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("</h2>" ENDLINE))); break;
-    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>" ENDLINE))); break;
+    case ES_LARGE: PRET(string_append_mem(context->two, STRING_STRLEN("</p>" ENDLINE "</h3>" ENDLINE))); break;
+    case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("</p>" ENDLINE "</h2>" ENDLINE))); break;
+    case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("</p>" ENDLINE "</h1>" ENDLINE))); break;
     case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("</h1>" ENDLINE "</header>" ENDLINE))); break;
-    default: PRET(string_append_mem(context->two, STRING_STRLEN("</p></a>" ENDLINE))); break; /* ES_INTERNAL_REFERENCE, ES_EXTERNAL_REFERENCE */
+    default: PRET(string_append_mem(context->two, STRING_STRLEN("</a><br>" ENDLINE))); break; /* ES_INTERNAL_REFERENCE, ES_EXTERNAL_REFERENCE */
     }
     return OK;
 }
