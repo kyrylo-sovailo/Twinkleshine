@@ -9,51 +9,65 @@
 #include "../../include/utility.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define CRLF "\r\n"
 #define ENDLINE "\r\n" /* Specification says CR is optional */
 
+struct GuppyInsertMarkerTrace
+{
+    size_t total_size, payload_size, chunk_payload_size;
+};
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wanalyzer-malloc-leak"
+#pragma GCC diagnostic ignored "-Wanalyzer-out-of-bounds"
 static struct Error *guppy_insert_markers(struct CharBuffer *buffer, unsigned int *first_chunk, unsigned int *chunk_number)
 {
-    unsigned int seq;
+    /* TODO: optimize without allocation? */
+    const size_t initial_payload_size = buffer->size;
+    const size_t chunk_number_estimation = (initial_payload_size + CHUNK_SIZE - 1) / (CHUNK_SIZE - 32) + 1;
+    struct GuppyInsertMarkerTrace *trace = malloc(chunk_number_estimation * sizeof(struct GuppyInsertMarkerTrace));
+    struct GuppyInsertMarkerTrace *p = trace;
+    unsigned int seq = 6 + (unsigned int)random_rand(0x1000000);
     size_t total_size = 0, payload_size = 0;
     char extra[64];
-    seq = 6 + (unsigned int)random_rand(0x1000000);
+    ARET(trace != NULL);
     *first_chunk = seq;
-    for (; ; seq++)
+    for (; ; seq++, p++)
     {
         const size_t chunk_extra_size = int_length(seq) + ((total_size == 0) ? 1 : 2);
         const size_t max_chunk_payload_size = CHUNK_SIZE - chunk_extra_size;
-        const size_t chunk_payload_size = (buffer->size - payload_size < max_chunk_payload_size) ? (buffer->size - payload_size) : max_chunk_payload_size;
+        const size_t chunk_payload_size = (initial_payload_size - payload_size < max_chunk_payload_size) ? (initial_payload_size - payload_size) : max_chunk_payload_size;
         const size_t chunk_total_size = chunk_extra_size + chunk_payload_size;
+        p->total_size = total_size;
+        p->payload_size = payload_size;
+        p->chunk_payload_size = chunk_payload_size;
         payload_size += chunk_payload_size;
         total_size += chunk_total_size;
         if (chunk_payload_size == 0) break;
     }
     *chunk_number = seq - *first_chunk + 1;
     PRET(string_resize(buffer, total_size));
-    for (; ; seq--)
+    for (; ; seq--, p--)
     {
-        const size_t chunk_extra_size = (size_t)sprintf(extra, (total_size == 0) ? "%u " : "%u" CRLF, seq);
-        const size_t max_chunk_payload_size = CHUNK_SIZE - chunk_extra_size;
-        const size_t chunk_payload_size = (buffer->size - payload_size < max_chunk_payload_size) ? (buffer->size - payload_size) : max_chunk_payload_size;
-        const size_t chunk_total_size = chunk_extra_size + chunk_payload_size;
-        payload_size -= chunk_payload_size;
-        total_size -= chunk_total_size;
-        memmove(buffer->p + total_size + chunk_extra_size, buffer->p + payload_size, chunk_payload_size);
-        memcpy(buffer->p + total_size, extra, chunk_extra_size);
-        if (total_size == 0) break;
+        const size_t chunk_extra_size = (size_t)sprintf(extra, (seq == *first_chunk) ? "%u " : "%u" CRLF, seq);
+        memmove(buffer->p + p->total_size + chunk_extra_size, buffer->p + p->payload_size, p->chunk_payload_size);
+        memcpy(buffer->p + p->total_size, extra, chunk_extra_size);
+        if (seq == *first_chunk) break;
     }
+    if (trace != NULL) free(trace);
     return OK;
 }
+#pragma GCC diagnostic pop
 
 struct Error *processor_print_guppy(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
     switch (style)
     {
-    case ES_INITIALIZE: /* Overload, generate sequence number */
-        PRET(string_copy_mem(context->one, STRING_STRLEN("2 text/gemini" CRLF)));
+    case ES_INITIALIZE: /* Overload, no code */
+        PRET(string_copy_mem(context->one, STRING_STRLEN("text/gemini" CRLF)));
         context->two->size = 0;
         break;
 

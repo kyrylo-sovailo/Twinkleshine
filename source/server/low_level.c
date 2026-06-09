@@ -44,7 +44,7 @@ struct ExError server_send_message(struct Value *value, int fd, const struct soc
     const unsigned int second_last_chunk = first_chunk + chunk_number - 2;
     const size_t second_last_chunk_size = value_size(value) - last_chunk_size - CHUNK_SIZE * (chunk_number - 2);
     unsigned int chunk = first_chunk, sent = 0, acknowledged = 0;
-    struct Value *local_value = value;
+    struct Value local_value = *value;
     unsigned char i;
 
     for (i = 0; i < VALUE_PARTS; i++)
@@ -54,15 +54,15 @@ struct ExError server_send_message(struct Value *value, int fd, const struct soc
         {
             const size_t chunk_size = (chunk == second_last_chunk) ? second_last_chunk_size : ((chunk == last_chunk) ? last_chunk_size : CHUNK_SIZE);
             char buffer[CHUNK_SIZE];
-            struct Value chunk; struct ValuePart chunk_part;
-            
-            EXARET(*p < CHUNK_SEND_REPEATS, EEF_SHUTDOWN_LOG);
-            if (*p < 0) { acknowledged++; continue; }
-            chunk = *local_value;
+            struct Value chunk = local_value; struct ValuePart chunk_part;
             value_first(&chunk, chunk_size);
             value_to_value_part(&chunk_part, &chunk, buffer);
-            (void)sendto(fd, chunk_part.p, chunk_size, 0, address, (address->sa_family == AF_INET6) ? sizeof(struct in6_addr) : sizeof(struct in_addr));
-            value_second(local_value, chunk_size);
+            value_second(&local_value, chunk_size);
+            
+            EXARET(*p < CHUNK_SEND_REPEATS, EEF_SHUTDOWN_LOG);
+            if (*p < 0) { acknowledged++; continue; } /*Acknowledged, don't send */
+            if (address == NULL) continue; /* Dry run, don't send */
+            (void)sendto(fd, chunk_part.p, chunk_size, 0, address, (address->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
             (*p)++;
             sent++;
             if (sent == CHUNK_SEND_SIMULTANEOUS) return EXOK;

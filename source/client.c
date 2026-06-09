@@ -33,12 +33,12 @@ void clients_shuffle(struct ClientBuffer *clients)
 
 void clients_remove_finalized(struct ClientBuffer *clients, struct PollBuffer *polls)
 {
+    /* No consideration of short request buffer because it is guaranteed to be NULL at this point */
     struct Client *client_i, *surviving_client_i;
     struct pollfd *poll_i, *surviving_poll_i;
     for (surviving_client_i = client_i = clients->p, surviving_poll_i = poll_i = polls->p + ACCEPTING_SOCKETS; client_i < clients->p + clients->size; client_i++, poll_i++)
     {
-        const bool dead = poll_i->fd < 0 && ACCEPTING_SOCKET_IS_CONNECTION(client_i->accepting_socket);
-        if (!dead) continue;
+        if (client_i->dead) continue;
         if (client_i == g_short_response_stream_owner)
         {
             g_short_response_stream_owner -= (size_t)(client_i - surviving_client_i); /* Short buffer owner is guaranteed to not be alive */
@@ -57,7 +57,7 @@ void clients_remove_finalized(struct ClientBuffer *clients, struct PollBuffer *p
 
 void client_finalize(struct Client *client)
 {
-    client->accepting_socket = 0;
+    client->dead = true;
     if (client == g_short_request_message_owner)
     {
         const struct Value zero = ZERO_INIT;
@@ -89,8 +89,11 @@ static void polls_finalize_element(struct pollfd *poll) { poll_finalize(poll); }
 struct Error *clients_append(struct ClientBuffer *buffer, const struct Client *data, size_t size)
 {
     struct Error *error;
+    const bool short_request_stream_present = g_short_request_message_owner != NULL;
     const bool short_response_stream_present = g_short_response_stream_owner != NULL;
+    size_t short_request_message_index;
     size_t short_response_stream_index;
+    if (short_request_stream_present) short_request_message_index = (size_t)(g_short_request_message_owner - buffer->p);
     if (short_response_stream_present) short_response_stream_index = (size_t)(g_short_response_stream_owner - buffer->p);
     switch (sizeof(*buffer->p))
     {
@@ -100,6 +103,7 @@ struct Error *clients_append(struct ClientBuffer *buffer, const struct Client *d
     case 8: error = generic_buffer_append_8(buffer, data, size); break;
     default: error = generic_buffer_append_n(buffer, data, size, sizeof(*buffer->p)); break;
     }
+    if (short_request_stream_present) g_short_request_message_owner = &buffer->p[short_request_message_index];
     if (short_response_stream_present) g_short_response_stream_owner = &buffer->p[short_response_stream_index];
     return error;
 }

@@ -9,14 +9,14 @@
 
 #include <limits.h>
 
-static bool get_makes_sense_to_receive(struct Client *client)
+static bool get_makes_sense_to_receive(const struct Client *client)
 {
     return client->cryptography_state != CS_SHUTDOWN
-        && client->parser.state != RPS_END
+        && (client->parser.state != RPS_END || ACCEPTING_SOCKET_IS_MESSAGE(client->accepting_socket)) /* TODO: ????? */
         && client_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
 
-static bool get_makes_sense_to_parse(struct Client *client)
+static bool get_makes_sense_to_parse(const struct Client *client)
 {
     return client->cryptography_state == CS_OPERATIONAL
         && client->parser.state != RPS_END
@@ -24,7 +24,7 @@ static bool get_makes_sense_to_parse(struct Client *client)
         && client_response_stream_size(client) < MAX_RESPONSE_STREAM_SIZE;
 }
 
-static bool get_makes_sense_to_send(struct Client *client)
+static bool get_makes_sense_to_send(const struct Client *client)
 {
     return client_response_stream_size(client) > 0;
 }
@@ -197,7 +197,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
     bool first = true;
 
     if ((poll->events & POLLIN) != 0 && (poll->revents & POLLIN) == 0) flags |= CF_EXHAUSTED;
-    if ((poll->events & POLLOUT) != 0 && (poll->revents & POLLOUT) == 0) flags |= CF_SATURATED;
+    if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket) && (poll->events & POLLOUT) != 0 && (poll->revents & POLLOUT) == 0) flags |= CF_SATURATED;
     while (true)
     {
         bool done_something = false;
@@ -207,9 +207,16 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
         
         /* Nothing to do, prepare to wait */
         if (done_something) continue;
-        poll->events = POLLHUP | POLLERR;
-        if (get_makes_sense_to_receive(client)) poll->events |= POLLIN;
-        if (get_makes_sense_to_send(client)) poll->events |= POLLOUT;
+        if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket))
+        {
+            poll->events = POLLHUP | POLLERR;
+            if (get_makes_sense_to_receive(client)) poll->events |= POLLIN;
+            if (get_makes_sense_to_send(client)) poll->events |= POLLOUT;
+        }
+        else
+        {
+            if (get_makes_sense_to_send(client) && *remaining > CHUNK_SEND_REPEAT_TIME) *remaining = CHUNK_SEND_REPEAT_TIME;
+        }
         EXPIGNORE(check_timeouts(client, now, remaining));
         return OK;
 
@@ -230,7 +237,7 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
             else
             {
                 (void)sendto(poll->fd, response.parts[0].p, response.parts[0].size, 0,
-                    (struct sockaddr*)&client->address, (client->address.ss_family == AF_INET6) ? sizeof(struct in6_addr) : sizeof(struct in_addr));
+                    (struct sockaddr*)&client->address, (client->address.ss_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
             }
         }
         if ((exerror.flags & PARTIAL_EEF_SHUTDOWN) != 0)

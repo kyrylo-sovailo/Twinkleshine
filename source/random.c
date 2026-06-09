@@ -10,6 +10,7 @@ void random_module_initialize(void)
     const clock_t c = clock();
     const unsigned int seed = (unsigned int)t + (unsigned int)c;
     srand(seed);
+    srand(42);
 }
 
 size_t random_rand(size_t outcome_number)

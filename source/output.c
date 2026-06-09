@@ -357,6 +357,6 @@ void output_print_client(bool error_output, const struct Client *client)
     else if (ACCEPTING_SOCKET_IS_GEMINI(client->accepting_socket))          protocol = "Gemini";
     else if (ACCEPTING_SOCKET_IS_SPARTAN(client->accepting_socket))         protocol = "Spartan";
     else if (ACCEPTING_SOCKET_IS_NEX(client->accepting_socket))             protocol = "Nex";
-    else /* if (ACCEPTING_SOCKET_IS_GUPPY(client->accepting_socket)) */     protocol = "Nex";
+    else /* if (ACCEPTING_SOCKET_IS_GUPPY(client->accepting_socket)) */     protocol = "Guppy";
     output_print(error_output, "client %s:%u (%s):\n", address, (unsigned int)port, protocol);
 }

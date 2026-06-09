@@ -48,7 +48,7 @@ static void server_send_low_resources_message(const struct Client *client, int f
     if (max_utilization) fixed = FR_MAX_UTILIZATION;
     processor_fixed_guppy_failsafe(fixed, &response_message);
     (void)sendto(fd, response_message.parts[0].p, response_message.parts[0].size, 0,
-        (struct sockaddr*)&client->address, (client->address.ss_family == AF_INET6) ? sizeof(struct in6_addr) : sizeof(struct in_addr));
+        (struct sockaddr*)&client->address, (client->address.ss_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
 }
 
 static bool address_compare(const struct sockaddr_storage *a, const struct sockaddr_storage *b)
@@ -139,21 +139,21 @@ static struct Error *server_accept_message(struct ClientBuffer *clients, struct 
         struct Error *error;
         const size_t old_size = clients->size;
         const char guppy[] = "guppy://";
-        const size_t guppy_size = sizeof(guppy);
-        const size_t unsigned_received = (size_t)signed_received;
+        const size_t guppy_size = sizeof(guppy) - 1;
+        const size_t received = (size_t)signed_received;
         struct Client *p;
         for (p = clients->p; p < clients->p + clients->size; p++)
         {
             if (ACCEPTING_SOCKET_IS_GUPPY(p->accepting_socket) && address_compare(&new_client.address, &p->address))
             {
                 /* Not a new client */
-                g_short_response_stream_owner = p;
-                g_short_request_message_size = unsigned_received;
+                g_short_request_message_owner = p;
+                g_short_request_message_size = received;
                 polls->p[(p - clients->p) + ACCEPTING_SOCKETS].revents |= POLLIN;
                 return OK;
             }
         }
-        if (unsigned_received < guppy_size || memcmp(g_short_request_message, guppy, guppy_size) != 0)
+        if (received < guppy_size || memcmp(g_short_request_message, guppy, guppy_size) != 0)
         {
             /* Rogue message, not worth creating a client. Specific to guppy because processor_fixed_response has no way to handle unsolicited messages */
             const char message[] = "4 No request\r\n";
@@ -176,6 +176,8 @@ static struct Error *server_accept_message(struct ClientBuffer *clients, struct 
         new_client.cryptography_state = CS_OPERATIONAL;
         PGOTO(polls_append(polls, &new_poll, 1));
         PGOTO(clients_append(clients, &new_client, 1));
+        g_short_request_message_owner = &clients->p[clients->size - 1];
+        g_short_request_message_size = received;
         return OK;
         
         failure:
@@ -207,7 +209,7 @@ struct Error *server_accept_traffic(struct ClientBuffer *clients, struct PollBuf
         {
             PRET(server_accept_connection(clients, polls, now, index, max_clients, max_memory, max_utilization));
         }
-        else
+        else if (g_short_request_message_owner == NULL) /* Only one message */
         {
             PRET(server_accept_message(clients, polls, now, index, max_clients, max_memory, max_utilization));
         }

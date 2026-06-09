@@ -21,6 +21,7 @@ enum CryptographyState
 struct Client
 {
     unsigned char accepting_socket;
+    bool dead;
 
     /* Input */
     struct Ring request_stream;                 /* Buffer for incoming data, contains many request contents */
@@ -38,6 +39,7 @@ struct Client
     time_t last_request_stream_not_empty;       /* Last time when the input buffer was not empty */
     time_t last_response_stream_not_full;       /* Last time when the output buffer was not full */
     time_t last_response_complete;              /* Last time when the input buffer was empty or a complete response was sent */
+    time_t last_chunk_sent;                     /* Last time when send_message() was invoked for real */
 
     /* Cryptography */
     enum CryptographyState cryptography_state;  /* State */

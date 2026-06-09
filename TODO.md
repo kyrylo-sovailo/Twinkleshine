@@ -14,3 +14,4 @@
  - [ ] Implement Guppy
  - [ ] Limit line length to N symbols
  - [ ] Standartize empty line generation in non-HTTP protocols
+ - [ ] Introduce some guarantees on Value (priority: critical)

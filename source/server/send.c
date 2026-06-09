@@ -78,9 +78,18 @@ static struct ExError server_send_short_response_stream(struct Client *client, i
         const size_t last_chunk_size = int_length(client->response.first_chunk + client->response.chunks.size - 1) + 2;
         struct ValueLocation chunks_location; struct Value chunks;
         chunks_location.offset = sizeof(struct Response) + client->response.chunks.offset;
-        chunks_location.size = client->response.chunks.offset;    
-        EXPRETF(ring_get(&client->response_stream, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
-        EXPRET(server_send_message(&g_short_response_stream, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
+        chunks_location.size = client->response.chunks.size;    
+        EXPRETF(ring_get(&client->response_queue, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
+        if (client->last_chunk_sent == 0 || now >= client->last_chunk_sent + CHUNK_SEND_REPEAT_TIME)
+        {
+            EXPRET(server_send_message(&g_short_response_stream, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
+            client->last_chunk_sent = now;
+        }
+        else
+        {
+            EXPRET(server_send_message(&g_short_response_stream, -1, NULL, client->response.first_chunk, &chunks, last_chunk_size));
+        }
+        *flags |= CF_SATURATED;
     }
     new_value_size = value_size(&g_short_response_stream);
     sent_stream_size = old_value_size - new_value_size;
@@ -116,9 +125,18 @@ static struct ExError server_send_long_output_buffer(struct Client *client, int 
         const size_t last_chunk_size = int_length(client->response.first_chunk + client->response.chunks.size - 1) + 2;
         struct ValueLocation chunks_location; struct Value chunks;
         chunks_location.offset = sizeof(struct Response) + client->response.chunks.offset;
-        chunks_location.size = client->response.chunks.offset;    
-        EXPRETF(ring_get(&client->response_stream, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
-        EXPRET(server_send_message(&value, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
+        chunks_location.size = client->response.chunks.size;    
+        EXPRETF(ring_get(&client->response_queue, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
+        if (client->last_chunk_sent == 0 || now >= client->last_chunk_sent + CHUNK_SEND_REPEAT_TIME)
+        {
+            EXPRET(server_send_message(&value, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
+            client->last_chunk_sent = now;
+        }
+        else
+        {
+            EXPRET(server_send_message(&value, -1, NULL, client->response.first_chunk, &chunks, last_chunk_size));
+        }
+        *flags |= CF_SATURATED;
     }
     new_value_size = value_size(&value);
     sent_stream_size = old_value_size - new_value_size;

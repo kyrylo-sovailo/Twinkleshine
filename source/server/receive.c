@@ -14,7 +14,11 @@ static struct ExError server_receive_data_guppy(struct Client *client, enum Conn
     const struct ExError EXOK = { OK };
     const char guppy[] = "guppy://";
     const size_t guppy_size = sizeof(guppy) - 1;
-    if (g_short_request_message_owner != client) { *flags |= CF_SATURATED; return EXOK; }
+    if (g_short_request_message_owner != client)
+    {
+        *flags |= CF_SATURATED;
+        return EXOK;
+    }
     if (g_short_request_message_size >= guppy_size && memcmp(g_short_request_message, guppy, guppy_size) == 0)
     {
         /* Request */
@@ -28,11 +32,11 @@ static struct ExError server_receive_data_guppy(struct Client *client, enum Conn
         struct ValueLocation location; struct Value value;
         const signed char sent = -1;
         const unsigned long int seq = strtoul(g_short_request_message, &end, 10);
-        EXARET0(memcmp(end, "\r\n", 3) == 0 && seq >= client->response.first_chunk && seq < client->response.first_chunk + client->response.chunks.size,
+        EXARET0(memcmp(end, "\r\n", 3) != 0 && seq >= client->response.first_chunk && seq < client->response.first_chunk + client->response.chunks.size,
             "Invalid acknowledgement", EEF_SEND_CLOSE_LOG(FR_UNKNOWN));
-        location.offset = sizeof(struct Response) + client->response.chunks.offset + (client->response.first_chunk - seq);
+        location.offset = sizeof(struct Response) + client->response.chunks.offset + (seq - client->response.first_chunk);
         location.size = 1;
-        EXPRETF(ring_get(&client->response_queue, &location, false, &value), EEF_CLOSE_LOG_DIE);
+        EXPRETF(ring_get(&client->response_queue, &location, false, &value), EEF_CLOSE_LOG); /* Don't die because seq came from the internet */
         value_write(&value, (const char*)&sent);
     }
     g_short_request_message_size = 0;
@@ -50,6 +54,7 @@ struct ExError server_receive_data(struct Client *client, int fd, time_t now, en
     if (ACCEPTING_SOCKET_IS_MESSAGE(client->accepting_socket))
     {
         EXPRET(server_receive_data_guppy(client, flags));
+        *flags |= CF_EXHAUSTED;
         if (client->request_stream.size > 0) client->last_request_stream_not_empty = now;
         return EXOK;
     }
