@@ -58,7 +58,7 @@ DECLARE_BUFFER(struct pollfd, PollBuffer)
 DECLARE_BUFFER_APPEND(struct pollfd, PollBuffer, polls_)
 DECLARE_BUFFER_FINALIZE(struct pollfd, PollBuffer, polls_)
 
-extern struct Value g_short_response_stream;       /* Short-term buffer that replaces some client's response_stream */
+extern struct ConstantValue g_short_response_stream;    /* Short-term buffer that replaces some client's response_stream */
 extern struct Client *g_short_response_stream_owner;    /* Which client does g_short_response_stream belong to */
 extern char g_short_request_message[2048];              /* Buffer that replaces some client's request_stream (2048 because mandated by Guppy) */
 extern struct Client *g_short_request_message_owner;    /* Which client does g_request_message belong to */

@@ -11,4 +11,5 @@ Implemented protocols:
  - [Gemini](https://geminiprotocol.net/docs/protocol-specification.gmi)
  - [Spartan](https://portal.mozz.us/spartan/spartan.mozz.us/specification.gmi)
  - [Nex](https://nightfall.city/nex/info/specification.txt)
+ - [Text](https://textprotocol.org/)
  - [Guppy](https://github.com/dimkr/guppy-protocol/blob/main/guppy-spec.gmi)

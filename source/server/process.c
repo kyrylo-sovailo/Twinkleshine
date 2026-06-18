@@ -5,8 +5,8 @@
 #include "../../include/ring.h"
 
 /* Flushes short output buffer into long output buffer */
-static struct ExError server_reserve_and_push_value(struct Ring *response_stream, const struct Value *data) NODISCARD;
-static struct ExError server_reserve_and_push_value(struct Ring *response_stream, const struct Value *data)
+static struct ExError server_reserve_push_value(struct Ring *response_stream, const struct ConstantValue *data) NODISCARD;
+static struct ExError server_reserve_push_value(struct Ring *response_stream, const struct ConstantValue *data)
 {
     const struct ExError EXOK = { OK };
     unsigned char i;
@@ -18,11 +18,11 @@ static struct ExError server_reserve_and_push_value(struct Ring *response_stream
     return EXOK;
 }
 
-struct ExError server_process_data(struct Client *client, time_t now)
+struct ExError server_process_traffic(struct Client *client, time_t now)
 {
     const struct ExError EXOK = { OK };
     struct Response response;
-    struct Value response_stream;
+    struct ConstantValue response_stream;
 
     /* Parse request, quit if the request is incomplete */
     EXPRET(parser_parse(client->accepting_socket, &client->parser, &client->request, &client->request_stream));
@@ -32,8 +32,8 @@ struct ExError server_process_data(struct Client *client, time_t now)
     /* Flush short output buffer to long output buffer because we are about to get another portion of data to send */
     if (g_short_response_stream_owner != NULL)
     {
-        const struct Value zero = ZERO_INIT;
-        EXPRET(server_reserve_and_push_value(&g_short_response_stream_owner->response_stream, &g_short_response_stream));
+        const struct ConstantValue zero = ZERO_INIT;
+        EXPRET(server_reserve_push_value(&g_short_response_stream_owner->response_stream, &g_short_response_stream));
         g_short_response_stream = zero;
         g_short_response_stream_owner = NULL;
         processor_free();
@@ -52,7 +52,7 @@ struct ExError server_process_data(struct Client *client, time_t now)
     }
     else if (client->response_stream.size > 0)
     {
-        EXPRET(server_reserve_and_push_value(&client->response_stream, &response_stream));
+        EXPRET(server_reserve_push_value(&client->response_stream, &response_stream));
         processor_free();
     }
     else

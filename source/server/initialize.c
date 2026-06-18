@@ -97,7 +97,7 @@ struct Error *server_initialize(struct PollBuffer *polls)
 {
     const struct pollfd zero = { -1, POLLIN, 0 };
     const char *modes[] = { "IPv6+IPv4", "IPv6*", "IPv6", "IPv4" };
-    const char **http_mode, **https_mode, **gopher_mode, **finger_mode, **gemini_mode, **spartan_mode, **nex_mode, **guppy_mode;
+    const char **http_mode, **https_mode, **gopher_mode, **finger_mode, **gemini_mode, **spartan_mode, **nex_mode, **text_mode, **guppy_mode;
 
     ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
     
@@ -129,9 +129,13 @@ struct Error *server_initialize(struct PollBuffer *polls)
     PRET(server_create_socket_pair(polls, &nex_mode, NEX_PORT, true));
     for (;polls->size < 14;) { PRET(polls_append(polls, &zero, 1)); }
 
+    text_mode = &modes[0];
+    PRET(server_create_socket_pair(polls, &text_mode, TEXT_PORT, true));
+    for (;polls->size < 16;) { PRET(polls_append(polls, &zero, 1)); }
+
     guppy_mode = &modes[0];
     PRET(server_create_socket_pair(polls, &guppy_mode, GUPPY_PORT, false));
-    for (;polls->size < 16;) { PRET(polls_append(polls, &zero, 1)); }
+    for (;polls->size < 18;) { PRET(polls_append(polls, &zero, 1)); }
 
     output_open(false);
     output_print(false, "Twinkleshine started\n");
@@ -142,6 +146,7 @@ struct Error *server_initialize(struct PollBuffer *polls)
     output_print(false, "Gemini  mode: %s:%d\n", *gemini_mode, GEMINI_PORT);
     output_print(false, "Spartan mode: %s:%d\n", *spartan_mode, SPARTAN_PORT);
     output_print(false, "Nex     mode: %s:%d\n", *nex_mode, NEX_PORT);
+    output_print(false, "Text    mode: %s:%d\n", *text_mode, TEXT_PORT);
     output_print(false, "Guppy   mode: %s:%d\n", *guppy_mode, GUPPY_PORT);
     output_print_time(false);
     output_print(false, "\n");

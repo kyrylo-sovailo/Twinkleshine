@@ -10,9 +10,9 @@
 static struct Error *server_pop_response(struct Client *client) NODISCARD;
 static struct Error *server_pop_response(struct Client *client)
 {
-    struct Value method, resource;
+    struct MutableValue method, resource;
     PRET(ring_pop(&client->response_queue, sizeof(struct Response)));
-    if (client->response.phony) return OK; /* Phony */
+    if (client->response.silent) return OK; /* Phony */
     PRET(ring_get(&client->response_queue, &client->response.method, false, &method));
     PRET(ring_get(&client->response_queue, &client->response.resource, false, &resource));
     output_open(false);
@@ -43,11 +43,11 @@ static struct Error *server_pop_responses(struct Client *client, time_t now, siz
             client->response.stream_size = 0;
             if (client->response_queue.size > 0)
             {
-                struct ValueLocation location; struct Value value;
+                struct ValueLocation location; union Value value;
                 location.offset = 0;
                 location.size = sizeof(struct Response);
-                PRET(ring_get(&client->response_queue, &location, false, &value));
-                value_read(&value, (char*)&client->response);
+                PRET(ring_get(&client->response_queue, &location, false, &value.m));
+                value_read(&value.c, (char*)&client->response);
             }
         }
         else
@@ -71,15 +71,15 @@ static struct ExError server_send_short_response_stream(struct Client *client, i
     old_value_size = value_size(&g_short_response_stream);
     if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket))
     {
-        EXPRETF(server_send_value(&g_short_response_stream, fd, flags), EEF_CLOSE_LOG);
+        EXPRETF(server_send_stream(&g_short_response_stream, fd, flags), EEF_CLOSE_LOG);
     }
     else
     {
         const size_t last_chunk_size = int_length(client->response.first_chunk + client->response.chunks.size - 1) + 2;
-        struct ValueLocation chunks_location; struct Value chunks;
+        struct ValueLocation chunks_location; union Value chunks;
         chunks_location.offset = sizeof(struct Response) + client->response.chunks.offset;
         chunks_location.size = client->response.chunks.size;    
-        EXPRETF(ring_get(&client->response_queue, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
+        EXPRETF(ring_get(&client->response_queue, &chunks_location, false, &chunks.m), EEF_CLOSE_LOG_DIE);
         if (client->last_chunk_sent == 0 || now >= client->last_chunk_sent + CHUNK_SEND_REPEAT_TIME)
         {
             EXPRET(server_send_message(&g_short_response_stream, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
@@ -110,35 +110,35 @@ static struct ExError server_send_long_output_buffer(struct Client *client, int 
 static struct ExError server_send_long_output_buffer(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
 {
     const struct ExError EXOK = { OK };
-    struct Value value;
+    union Value value;
     size_t old_value_size, new_value_size, sent_stream_size;
     
     /* Send chunk of data */
-    ring_get_all(&client->response_stream, &value);
-    old_value_size = value_size(&value);
+    ring_get_all(&client->response_stream, &value.m);
+    old_value_size = value_size(&value.c);
     if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket))
     {
-        EXPRETF(server_send_value(&value, fd, flags), EEF_CLOSE_LOG);
+        EXPRETF(server_send_stream(&value.c, fd, flags), EEF_CLOSE_LOG);
     }
     else
     {
         const size_t last_chunk_size = int_length(client->response.first_chunk + client->response.chunks.size - 1) + 2;
-        struct ValueLocation chunks_location; struct Value chunks;
+        struct ValueLocation chunks_location; union Value chunks;
         chunks_location.offset = sizeof(struct Response) + client->response.chunks.offset;
         chunks_location.size = client->response.chunks.size;    
-        EXPRETF(ring_get(&client->response_queue, &chunks_location, false, &chunks), EEF_CLOSE_LOG_DIE);
+        EXPRETF(ring_get(&client->response_queue, &chunks_location, false, &chunks.m), EEF_CLOSE_LOG_DIE);
         if (client->last_chunk_sent == 0 || now >= client->last_chunk_sent + CHUNK_SEND_REPEAT_TIME)
         {
-            EXPRET(server_send_message(&value, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
+            EXPRET(server_send_message(&value.c, fd, (struct sockaddr*)&client->address, client->response.first_chunk, &chunks, last_chunk_size));
             client->last_chunk_sent = now;
         }
         else
         {
-            EXPRET(server_send_message(&value, -1, NULL, client->response.first_chunk, &chunks, last_chunk_size));
+            EXPRET(server_send_message(&value.c, -1, NULL, client->response.first_chunk, &chunks, last_chunk_size));
         }
         *flags |= CF_SATURATED;
     }
-    new_value_size = value_size(&value);
+    new_value_size = value_size(&value.c);
     sent_stream_size = old_value_size - new_value_size;
     EXPRETF(ring_pop(&client->response_stream, sent_stream_size), EEF_CLOSE_LOG_DIE);
 
@@ -148,7 +148,7 @@ static struct ExError server_send_long_output_buffer(struct Client *client, int 
     return EXOK;
 }
 
-struct ExError server_send_data(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
+struct ExError server_send_traffic(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
 {
     const struct ExError EXOK = { OK };
     size_t short_response_stream_size = 0;

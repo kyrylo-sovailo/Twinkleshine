@@ -3,12 +3,12 @@
 #include <limits.h>
 #include <string.h>
 
-bool value_compare_str(const struct Value *a, const char *b)
+bool value_compare_str(const struct ConstantValue *a, const char *b)
 {
     return value_compare_mem(a, b, strlen(b));
 }
 
-bool value_compare_mem(const struct Value *a, const char *b, size_t b_size)
+bool value_compare_mem(const struct ConstantValue *a, const char *b, size_t b_size)
 {
     unsigned char i;
     if (value_size(a) != b_size) return false;
@@ -20,12 +20,12 @@ bool value_compare_mem(const struct Value *a, const char *b, size_t b_size)
     return true;
 }
 
-bool value_compare_case_str(const struct Value *a, const char *b)
+bool value_compare_case_str(const struct ConstantValue *a, const char *b)
 {
     return value_compare_case_mem(a, b, strlen(b));
 }
 
-bool value_compare_case_mem(const struct Value *a, const char *b, size_t b_size)
+bool value_compare_case_mem(const struct ConstantValue *a, const char *b, size_t b_size)
 {
     const char *bi;
     unsigned char i;
@@ -45,10 +45,10 @@ bool value_compare_case_mem(const struct Value *a, const char *b, size_t b_size)
     return true;
 }
 
-bool value_parse_comma(struct Value *a, struct Value *result)
+bool value_parse_comma(struct ConstantValue *a, struct ConstantValue *result)
 {
     /* This might be the most idiotic piece of code I ever wrote, but it runs in a loop */
-    const struct Value zero = ZERO_INIT;
+    const struct ConstantValue zero = ZERO_INIT;
     bool success = false;
     unsigned char i;
     *result = zero;
@@ -76,57 +76,29 @@ bool value_parse_comma(struct Value *a, struct Value *result)
     return success;
 }
 
-void value_trim(struct Value *a)
+void value_trim(struct ConstantValue *a)
 {
     /* Delete beginning spaces */
     unsigned char i;
-    for (i = 0;;)
+    for (i = 0;; a->parts[i].p++, a->parts[i].size--)
     {
         char c;
         while (a->parts[i].size == 0) { i++; if (i == VALUE_PARTS) return; } /* No non-spaces found, go to next part or exit */
         c = *a->parts[i].p;
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break; /*TODO: use character map from request_processor.c */
-        a->parts[i].p++;
-        a->parts[i].size--;
     }
     
     /* Delete ending spaces */
-    for (i = VALUE_PARTS - 1;;)
+    for (i = VALUE_PARTS - 1;; a->parts[i].size--)
     {
         char c;
         while (a->parts[i].size == 0) i--; /* No non-spaces found, go to previous part or exit (no boundary check because it must find non-space) */
         c = a->parts[i].p[a->parts[i].size - 1];
         if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v')) break;
-        a->parts[i].size--;
     }
 }
 
-void value_trim_slash(struct Value *a)
-{
-    /* Delete beginning slashes */
-    unsigned char i;
-    for (i = 0;;)
-    {
-        char c;
-        while (a->parts[i].size == 0) { i++; if (i == VALUE_PARTS) return; } /* No non-slashes found, go to next part or exit */
-        c = *a->parts[i].p;
-        if (c != '/') break;
-        a->parts[i].p++;
-        a->parts[i].size--;
-    }
-    
-    /* Delete ending slashes */
-    for (i = VALUE_PARTS - 1;;)
-    {
-        char c;
-        while (a->parts[i].size == 0) i--; /* No non-slashes found, go to previous part or exit (no boundary check because it must find non-slash) */
-        c = a->parts[i].p[a->parts[i].size - 1];
-        if (c != '/') break;
-        a->parts[i].size--;
-    }
-}
-
-bool value_to_uint(const struct Value *a, unsigned int *result)
+bool value_to_uint(const struct ConstantValue *a, unsigned int *result)
 {
     unsigned int local_result = 0;
     unsigned char i;
@@ -146,7 +118,7 @@ bool value_to_uint(const struct Value *a, unsigned int *result)
     return true;
 }
 
-size_t value_size(const struct Value *value)
+size_t value_size(const struct ConstantValue *value)
 {
     size_t sum = 0;
     unsigned char i;
@@ -154,27 +126,64 @@ size_t value_size(const struct Value *value)
     return sum;
 }
 
-void value_first(struct Value *value, size_t size)
+void value_first(struct ConstantValue *value, size_t size)
 {
     unsigned char i;
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        if (value->parts[i].size > size) { value->parts[i].size = size; size = 0; }
-        else { size -= value->parts[i].size; }
+        if (value->parts[i].size > size)
+        {
+            value->parts[i].size = size;
+            size = 0;
+        }
+        else
+        {
+            size -= value->parts[i].size;
+        }
     }
 }
 
-void value_second(struct Value *value, size_t size)
+void value_second(struct ConstantValue *value, size_t size)
 {
     unsigned char i;
     for (i = 0; i < VALUE_PARTS && size > 0; i++)
     {
-        if (value->parts[i].size > size) { value->parts[i].p += size; value->parts[i].size -= size; size = 0; }
-        else { size -= value->parts[i].size; value->parts[i].size = 0; }
+        if (value->parts[i].size > size)
+        {
+            value->parts[i].p += size;
+            value->parts[i].size -= size;
+            size = 0;
+        }
+        else
+        {
+            size -= value->parts[i].size;
+            value->parts[i].size = 0;
+        }
     }
 }
 
-void value_read(const struct Value *value, char *destination)
+void value_first_second(struct ConstantValue *value, struct ConstantValue *first, size_t size)
+{
+    unsigned char i;
+    *first = *value;
+    for (i = 0; i < VALUE_PARTS; i++)
+    {
+        if (value->parts[i].size > size)
+        {
+            value->parts[i].p += size;
+            value->parts[i].size -= size;
+            first->parts[i].size = size;
+            size = 0;
+        }
+        else
+        {
+            size -= value->parts[i].size;
+            value->parts[i].size = 0;
+        }
+    }
+}
+
+void value_read(const struct ConstantValue *value, char *destination)
 {
     unsigned char i;
     for (i = 0; i < VALUE_PARTS; i++)
@@ -184,7 +193,7 @@ void value_read(const struct Value *value, char *destination)
     }
 }
 
-void value_write(const struct Value *value, const char *source)
+void value_write(const struct MutableValue *value, const char *source)
 {
     unsigned char i;
     for (i = 0; i < VALUE_PARTS; i++)
@@ -194,15 +203,15 @@ void value_write(const struct Value *value, const char *source)
     }
 }
 
-void value_to_value_part(struct ValuePart *part, const struct Value *value, char *buffer)
+void value_to_continuous(const struct ConstantValue *value, struct ConstantContinuousValue *continuous_value, char *buffer)
 {
     const size_t size = value_size(value);
     unsigned char i;
     for (i = 0; i < VALUE_PARTS; i++)
     {
-        if (value->parts[i].size == size) { *part = value->parts[i]; return; }
+        if (value->parts[i].size == size) { *continuous_value = value->parts[i]; return; }
     }
     value_read(value, buffer);
-    part->p = buffer;
-    part->size = size;
+    continuous_value->p = buffer;
+    continuous_value->size = size;
 }

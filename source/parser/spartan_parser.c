@@ -4,12 +4,12 @@
 #include "../../include/ring.h"
 #include "../../include/tables.h"
 
-static struct ExError parser_parse_spartan_part(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ValuePart *part)
+struct ExError parser_parse_spartan(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ConstantContinuousValue *part)
 {
     const struct ExError EXOK = { OK };
     const char *p;
     size_t available_content;
-
+    if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_METHOD_END;
     for (p = part->p; p < part->p + part->size; p++, request->stream_size++)
     {
         const char c = *p;
@@ -75,10 +75,10 @@ static struct ExError parser_parse_spartan_part(struct Parser *parser, struct Re
             }
             else if ((c_type & CM_NEWLINE) != 0)
             {
-                struct Value value;
-                EXPRETF(ring_get(request_stream, &parser->current_value, false, &value),
+                union Value value;
+                EXPRETF(ring_get(request_stream, &parser->current_value, false, &value.m),
                     EEF_CLOSE_LOG_DIE);
-                EXARET0(value_to_uint(&value, &parser->remaining_content),
+                EXARET0(value_to_uint(&value.c, &parser->remaining_content),
                     "Invalid integer",
                     EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
                 EXARET0(parser->current_value.offset + parser->current_value.size + parser->remaining_content <= MAX_REQUEST_SIZE,
@@ -115,29 +115,6 @@ static struct ExError parser_parse_spartan_part(struct Parser *parser, struct Re
             EXRET0("Received symbols after request end", EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             return EXOK; /* Breaking out of switch and for without incrementing offset */
         }
-    }
-    return EXOK;
-}
-
-struct ExError parser_parse_spartan(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
-{
-    const struct ExError EXOK = { OK };
-    struct ValueLocation not_parsed_location;
-    struct Value not_parsed;
-    unsigned char i;
-    
-    if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_METHOD_END;
-    not_parsed_location.offset = request->stream_size;
-    if (request_stream->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
-    else not_parsed_location.size = request_stream->size - not_parsed_location.offset;
-    EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF_CLOSE_LOG_DIE);
-    for (i = 0; i < VALUE_PARTS; i++)
-    {
-        EXPRET(parser_parse_spartan_part(parser, request, request_stream, &not_parsed.parts[i]));
-    }
-    if (request_stream->size >= MAX_REQUEST_SIZE)
-    {
-        EXARET0(parser->state == RPS_END, "Actual request size exceeded", EEF_SEND_SHUTDOWN_LOG(FR_MAX_REQUEST_HEADER_SIZE));
     }
     return EXOK;
 }

@@ -108,6 +108,7 @@ Socket allocation
     #define GEMINI_PORT 1965
     #define SPARTAN_PORT 300
     #define NEX_PORT 1900
+    #define TEXT_PORT 1961
     #define GUPPY_PORT 6775
     #define DOMAIN_NAME "my8bitsoul.eu"
     #define KEY_FILE "/etc/ssl/private/my8bitsoul.eu.key"
@@ -120,6 +121,7 @@ Socket allocation
     #define GEMINI_PORT 9965
     #define SPARTAN_PORT 8300
     #define NEX_PORT 9900
+    #define TEXT_PORT 9961
     #define GUPPY_PORT 14775
     #define DOMAIN_NAME "localhost"
     #define KEY_FILE "localhost.key"
@@ -160,13 +162,18 @@ Socket allocation
 #else
     #define NEX_PORT_STRING ":" STRINGIZE(NEX_PORT)
 #endif
+#if TEXT_PORT == 1961
+    #define TEXT_PORT_STRING ""
+#else
+    #define TEXT_PORT_STRING ":" STRINGIZE(TEXT_PORT)
+#endif
 #if GUPPY_PORT == 6775
     #define GUPPY_PORT_STRING ""
 #else
     #define GUPPY_PORT_STRING ":" STRINGIZE(GUPPY_PORT)
 #endif
 
-#define ACCEPTING_SOCKETS 16
+#define ACCEPTING_SOCKETS 18
 #define ACCEPTING_SOCKET_IS_HTTP(INDEX)   (                 (INDEX) < 2 )
 #define ACCEPTING_SOCKET_IS_HTTPS(INDEX)  ((INDEX) >= 2  && (INDEX) < 4 )
 #define ACCEPTING_SOCKET_IS_GOPHER(INDEX) ((INDEX) >= 4  && (INDEX) < 6 )
@@ -174,10 +181,11 @@ Socket allocation
 #define ACCEPTING_SOCKET_IS_GEMINI(INDEX) ((INDEX) >= 8  && (INDEX) < 10)
 #define ACCEPTING_SOCKET_IS_SPARTAN(INDEX)((INDEX) >= 10 && (INDEX) < 12)
 #define ACCEPTING_SOCKET_IS_NEX(INDEX)    ((INDEX) >= 12 && (INDEX) < 14)
-#define ACCEPTING_SOCKET_IS_GUPPY(INDEX)  ((INDEX) >= 14                )
+#define ACCEPTING_SOCKET_IS_TEXT(INDEX)   ((INDEX) >= 14 && (INDEX) < 16)
+#define ACCEPTING_SOCKET_IS_GUPPY(INDEX)  ((INDEX) >= 16                )
 
-#define ACCEPTING_SOCKET_IS_CONNECTION(INDEX)   ((INDEX) <  14)
-#define ACCEPTING_SOCKET_IS_MESSAGE(INDEX)      ((INDEX) >= 14)
+#define ACCEPTING_SOCKET_IS_CONNECTION(INDEX)   ((INDEX) <  16)
+#define ACCEPTING_SOCKET_IS_MESSAGE(INDEX)      ((INDEX) >= 16)
 
 /* Message-based protocols */
 #define CHUNK_SEND_REPEAT_TIME (1 * SECOND)

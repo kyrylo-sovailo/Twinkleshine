@@ -1,13 +1,12 @@
 #include "../../include/parser.h"
 #include "../../commonlib/include/error.h"
-#include "../../include/constants.h"
-#include "../../include/ring.h"
 
-static struct ExError parser_parse_finger_part(struct Parser *parser, struct Request *request, const struct ValuePart *part)
+struct ExError parser_parse_finger(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream)
 {
     const struct ExError EXOK = { OK };
     const char *p;
-    for (p = part->p; p < part->p + part->size; p++, request->stream_size++)
+    if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_METHOD_BEGIN;
+    for (p = request_stream->p; p < request_stream->p + request_stream->size; p++, request->stream_size++)
     {
         const char c = *p;
         switch (parser->state)
@@ -46,29 +45,6 @@ static struct ExError parser_parse_finger_part(struct Parser *parser, struct Req
             EXRET0("Received symbols after request end", EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             return EXOK; /* Breaking out of switch and for without incrementing offset */
         }
-    }
-    return EXOK;
-}
-
-struct ExError parser_parse_finger(struct Parser *parser, struct Request *request, const struct Ring *request_stream)
-{
-    const struct ExError EXOK = { OK };
-    struct ValueLocation not_parsed_location;
-    struct Value not_parsed;
-    unsigned char i;
-    
-    if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_METHOD_BEGIN;
-    not_parsed_location.offset = request->stream_size;
-    if (request_stream->size >= MAX_REQUEST_SIZE) not_parsed_location.size = MAX_REQUEST_SIZE - not_parsed_location.offset;
-    else not_parsed_location.size = request_stream->size - not_parsed_location.offset;
-    EXPRETF(ring_get(request_stream, &not_parsed_location, false, &not_parsed), EEF_CLOSE_LOG_DIE);
-    for (i = 0; i < VALUE_PARTS; i++)
-    {
-        EXPRET(parser_parse_finger_part(parser, request, &not_parsed.parts[i]));
-    }
-    if (request_stream->size >= MAX_REQUEST_SIZE)
-    {
-        EXARET0(parser->state == RPS_END, "Actual request size exceeded", EEF_SEND_SHUTDOWN_LOG(FR_MAX_REQUEST_HEADER_SIZE));
     }
     return EXOK;
 }

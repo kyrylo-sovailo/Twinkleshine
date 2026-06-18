@@ -15,6 +15,7 @@ struct Request
     struct ValueLocation resource;  /* Requested resource */
     struct ValueLocation protocol;  /* Protocol version */
     struct ValueLocation user;      /* User agent */
+    char language;                  /* The determined language with highest priority (en or de) */
     bool keep_alive;                /* Keep connection alive */
 
     struct ValueLocation content;   /* Content */
@@ -54,14 +55,17 @@ struct Parser
     struct ValueLocation current_value; /* Field value */
 };
 
-/* Feed buffer to parser */
+/* parser.c */
 struct ExError parser_parse(unsigned char accepting_socket, struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
-struct ExError parser_parse_http(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
-struct ExError parser_parse_gopher(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
-struct ExError parser_parse_finger(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
-struct ExError parser_parse_gemini(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
-struct ExError parser_parse_spartan(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
-struct ExError parser_parse_nex(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
-struct ExError parser_parse_guppy(struct Parser *parser, struct Request *request, const struct Ring *request_stream) NODISCARD;
+
+/* ${PROTOCOL}_parser.c */
+struct ExError parser_parse_http(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ConstantContinuousValue *part) NODISCARD;
+struct ExError parser_parse_gopher(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream) NODISCARD;
+struct ExError parser_parse_finger(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream) NODISCARD;
+struct ExError parser_parse_gemini(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream) NODISCARD;
+struct ExError parser_parse_spartan(struct Parser *parser, struct Request *request, const struct Ring *request_stream, const struct ConstantContinuousValue *part) NODISCARD;
+struct ExError parser_parse_nex(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream) NODISCARD;
+struct ExError parser_parse_text(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream) NODISCARD;
+struct ExError parser_parse_guppy(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream) NODISCARD;
 
 #endif

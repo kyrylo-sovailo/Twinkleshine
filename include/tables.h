@@ -21,6 +21,7 @@ extern const char *months_xxx[12];
 extern const char *days_xxx[7];
 
 extern const char *fun_facts[1002];
+extern const char *fun_facts_de[269];
 
 void tables_module_initialize(void);
 

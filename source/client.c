@@ -6,7 +6,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-struct Value g_short_response_stream = ZERO_INIT;
+struct ConstantValue g_short_response_stream = ZERO_INIT;
 struct Client *g_short_response_stream_owner = NULL;
 char g_short_request_message[2048];
 struct Client *g_short_request_message_owner = NULL;
@@ -60,7 +60,7 @@ void client_finalize(struct Client *client)
     client->dead = true;
     if (client == g_short_request_message_owner)
     {
-        const struct Value zero = ZERO_INIT;
+        const struct ConstantValue zero = ZERO_INIT;
         g_short_response_stream = zero;
         g_short_response_stream_owner = NULL;
         processor_free();

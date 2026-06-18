@@ -7,8 +7,9 @@
 #include <stddef.h>
 
 struct Client;
-struct Value;
+struct ConstantValue;
 struct Response;
+union Value;
 
 /* Initializes the module */
 struct Error *cryptography_module_initialize(void) NODISCARD;
@@ -26,6 +27,6 @@ struct ExError cryptography_finalize(struct Client *client) NODISCARD;
 struct ExError cryptography_decrypt(struct Client *client, size_t old_request_stream_size) NODISCARD;
 
 /* Encrypts the data and places it in request stream, and also corrects the stream size in request/request queue */
-struct ExError cryptography_encrypt(struct Client *client, const struct Response *response, struct Value *response_stream) NODISCARD;
+struct ExError cryptography_encrypt(struct Client *client, const struct Response *response, const struct ConstantValue *response_stream) NODISCARD;
 
 #endif

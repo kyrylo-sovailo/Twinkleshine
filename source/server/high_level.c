@@ -4,6 +4,7 @@
 #include "../../include/cryptography.h"
 #include "../../include/random.h"
 #include "../../include/tables.h"
+#include "../../include/time.h"
 
 #include <netinet/in.h>
 
@@ -80,8 +81,8 @@ static struct ExError server_process_client_round_recovery(struct Client *client
 {
     const struct ExError EXOK = { OK };
     struct Response response;
-    struct Value response_stream;
-    EXPRET(processor_fixed(client->accepting_socket, fixed, &response, &client->response_queue, &response_stream));
+    struct ConstantValue response_stream = ZERO_INIT;
+    EXPRET(processor_fixed(client->accepting_socket, fixed, &response, &client->response_queue, &response_stream.parts[0]));
     if (client->response_count == 0) client->response = response;
     EXPRET(cryptography_encrypt(client, &response, &response_stream));
     client->response_count++;
@@ -115,7 +116,7 @@ static struct ExError server_process_client_round(struct Client *client, struct 
     if ((*flags & CF_EXHAUSTED) == 0 && (*flags & CF_CLOSED) == 0 && get_makes_sense_to_receive(client))
     {
         *done_something = true;
-        EXPGOTO(server_receive_data(client, poll->fd, now, flags));
+        EXPGOTO(server_receive_traffic(client, poll->fd, now, flags));
         if ((*flags & CF_CLOSED) != 0
         || client->cryptography_state == CS_SHUTDOWN
         || (client->cryptography_state == CS_PENDING_SHUTDOWN && client_response_stream_size(client) == 0))
@@ -142,7 +143,7 @@ static struct ExError server_process_client_round(struct Client *client, struct 
     if (get_makes_sense_to_parse(client))
     {
         *done_something = true;
-        EXPGOTO(server_process_data(client, now));
+        EXPGOTO(server_process_traffic(client, now));
         if (client->ssl != NULL && client->parser.state == RPS_END)
         {
             /* Server should shutdown connection */
@@ -158,7 +159,7 @@ static struct ExError server_process_client_round(struct Client *client, struct 
     if (((*flags & CF_SATURATED) == 0) && get_makes_sense_to_send(client))
     {
         *done_something = true;
-        EXPGOTO(server_send_data(client, poll->fd, now, flags));
+        EXPGOTO(server_send_traffic(client, poll->fd, now, flags));
         if ((client->ssl == NULL && client->parser.state == RPS_END && client_response_stream_size(client) == 0)
         || (client->ssl != NULL && client->cryptography_state == CS_SHUTDOWN && client_response_stream_size(client) == 0)) /* TODO: am I sure? */
         {
@@ -223,21 +224,16 @@ static struct Error *server_process_client(struct Client *client, struct pollfd 
         failure:
         if ((exerror.flags & PARTIAL_EEF_SEND) != 0 && client->ssl == NULL)
         {
-            struct Value response;
-            processor_fixed_failsafe(client->accepting_socket, (enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response);
+            struct ConstantContinuousValue response_stream;
+            processor_fixed_failsafe(client->accepting_socket, (enum FixedResponse)exerror.flags & (enum FixedResponse)~0xFF, &response_stream);
             if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket))
             {
-                unsigned char i;
-                for (i = 0; i < VALUE_PARTS; i++)
-                {
-                    if (response.parts[i].size == 0) continue;
-                    (void)send(poll->fd, response.parts[i].p, response.parts[i].size, 0);
-                }
+                (void)send(poll->fd, response_stream.p, response_stream.size, 0);
             }
             else
             {
-                (void)sendto(poll->fd, response.parts[0].p, response.parts[0].size, 0,
-                    (struct sockaddr*)&client->address, (client->address.ss_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
+                const socklen_t address_size = (client->address.ss_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+                (void)sendto(poll->fd, response_stream.p, response_stream.size, 0, (struct sockaddr*)&client->address, address_size);
             }
         }
         if ((exerror.flags & PARTIAL_EEF_SHUTDOWN) != 0)
@@ -318,6 +314,7 @@ struct Error *server_main(void)
     /* Initialize */
     random_module_initialize();
     tables_module_initialize();
+    time_module_initialize();
     PGOTO(cryptography_module_initialize());
     PGOTO(processor_module_initialize());
     PGOTO(server_initialize(&polls));

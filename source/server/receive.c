@@ -13,7 +13,7 @@ static struct ExError server_receive_data_guppy(struct Client *client, enum Conn
 {
     const struct ExError EXOK = { OK };
     const char guppy[] = "guppy://";
-    const size_t guppy_size = sizeof(guppy) - 1;
+    const unsigned char guppy_size = sizeof(guppy) - 1;
     if (g_short_request_message_owner != client)
     {
         *flags |= CF_SATURATED;
@@ -29,7 +29,7 @@ static struct ExError server_receive_data_guppy(struct Client *client, enum Conn
     {
         /* Acknowledgement */
         char *end;
-        struct ValueLocation location; struct Value value;
+        struct ValueLocation location; struct MutableValue value;
         const signed char sent = -1;
         const unsigned long int seq = strtoul(g_short_request_message, &end, 10);
         EXARET0(memcmp(end, "\r\n", 3) != 0 && seq >= client->response.first_chunk && seq < client->response.first_chunk + client->response.chunks.size,
@@ -44,7 +44,7 @@ static struct ExError server_receive_data_guppy(struct Client *client, enum Conn
     return EXOK;
 }
 
-struct ExError server_receive_data(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
+struct ExError server_receive_traffic(struct Client *client, int fd, time_t now, enum ConnectionFlag *flags)
 {
     const struct ExError EXOK = { OK };
     const size_t old_size = client->request_stream.size;
@@ -68,7 +68,7 @@ struct ExError server_receive_data(struct Client *client, int fd, time_t now, en
     if (available > MAX_REQUEST_STREAM_SIZE - client->request_stream.size) available = MAX_REQUEST_STREAM_SIZE - client->request_stream.size;
 
     /* Read data into buffer */
-    EXPRET(server_receive_value(&client->request_stream, fd, available, flags));
+    EXPRET(server_receive_stream(&client->request_stream, fd, available, flags));
     if (client->request_stream.size > 0) client->last_request_stream_not_empty = now;
 
     /* Handle cryptography */

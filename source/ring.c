@@ -71,9 +71,9 @@ struct Error *ring_reserve(struct Ring *ring, size_t capacity)
     return OK;
 }
 
-void ring_get_all(const struct Ring *ring, struct Value *value)
+void ring_get_all(const struct Ring *ring, struct MutableValue *value)
 {
-    const struct Value zero = ZERO_INIT;
+    const struct MutableValue zero = ZERO_INIT;
     size_t continuous_after_begin;
     bool continuous_size_after_begin;
     *value = zero;
@@ -95,9 +95,9 @@ void ring_get_all(const struct Ring *ring, struct Value *value)
     }
 }
 
-struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool latest, struct Value *value)
+struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool latest, struct MutableValue *value)
 {
-    const struct Value zero = ZERO_INIT;
+    const struct MutableValue zero = ZERO_INIT;
     size_t offset;
     size_t continuous_after_begin;
     bool continuous_offset_after_begin;
@@ -153,13 +153,13 @@ struct Error *ring_push(struct Ring *ring, size_t size)
 
 struct Error *ring_push_write(struct Ring *ring, size_t size, const char *p)
 {
-    struct Value value;
+    struct MutableValue value;
     PRET(ring_push_get(ring, size, &value));
     value_write(&value, p);
     return OK;
 }
 
-struct Error *ring_push_get(struct Ring *ring, size_t size, struct Value *value)
+struct Error *ring_push_get(struct Ring *ring, size_t size, struct MutableValue *value)
 {
     struct ValueLocation location;
     PRET(ring_push(ring, size));
@@ -184,11 +184,11 @@ struct Error *ring_pop(struct Ring *ring, size_t size)
 
 struct Error *ring_pop_read(struct Ring *ring, size_t size, char *p)
 {
-    struct ValueLocation location; struct Value value;
+    struct ValueLocation location; union Value value;
     location.offset = 0;
     location.size = size;
-    PRET(ring_get(ring, &location, false, &value));
-    value_read(&value, p);
+    PRET(ring_get(ring, &location, false, &value.m));
+    value_read(&value.c, p);
     PRET(ring_pop(ring, size));
     return OK;
 }

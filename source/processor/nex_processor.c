@@ -27,30 +27,37 @@ static void wrap(char *text, size_t size)
     }
 }
 
-static bool paragraph(enum EntryStyle style)
+struct ExError processor_process_nex(const struct Request *request, const struct Ring *request_stream,
+    struct Response *response, struct Ring *response_queue, struct ConstantValue *response_stream)
 {
-    switch (style)
-    {
-    case ES_NORMAL:
-    case ES_QUOTE:
-    case ES_LARGE:
-    case ES_LARGER:
-    case ES_LARGEST:
-    case ES_HEADER:
-        return true;
-    default:
-        return false;
-    }
+    const struct ExError EXOK = { OK };
+    EXPRET(processor_process_finger(request, request_stream, response, response_queue, response_stream));
+    return EXOK;
 }
+
+struct ExError processor_fixed_nex(enum FixedResponse fixed,
+    struct Response *response, struct Ring *response_queue, struct ConstantContinuousValue *response_stream)
+{
+    const struct ExError EXOK = { OK };
+    EXPRET(processor_fixed_finger(fixed, response, response_queue, response_stream));
+    return EXOK;
+}
+
+void processor_fixed_nex_failsafe(enum FixedResponse fixed,
+    struct ConstantContinuousValue *response_stream)
+{
+    processor_fixed_finger_failsafe(fixed, response_stream);
+}
+
 
 struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
     /* Pre-prefix */
-    size_t old_size, line_size;
-    char *p;
-    context->list_index = (style == ES_ENUMERATION) ? (context->list_index + 1) : 0;
-    if (paragraph(style) || paragraph(context->previous_style)) PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
-    context->previous_style = style;
+    size_t old_size;
+    if (processor_generic_paragraph(style) || processor_generic_paragraph(context->previous_style))
+    {
+        PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
+    }
     old_size = context->one->size;
     
     /* Prefix */
@@ -58,7 +65,8 @@ struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum En
     {
     case ES_INITIALIZE: context->one->size = 0; context->two->size = 0; return OK;
     case ES_FINALIZE: return OK;
-    case ES_NORMAL: break;
+    case ES_NORMAL:
+    case ES_PARAGRAPH: break;
     case ES_ITEMIZE: PRET(string_append_mem(context->one, STRING_STRLEN(" - "))); break;
     case ES_ENUMERATION: PRET(string_print_append(context->one, " %u. ", context->list_index)); break;
     case ES_QUOTE: PRET(string_append_mem(context->one, STRING_STRLEN(" > "))); break;
@@ -82,49 +90,24 @@ struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum En
     switch (style)
     {
     case ES_NORMAL:
+    case ES_PARAGRAPH:
         wrap(context->one->p + old_size, context->one->size - old_size);
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
         break;
     case ES_LARGE:
     case ES_LARGER:
-        for (p = context->one->p + old_size; p < context->one->p + context->one->size; p++) *p = (*p >= 'a' && *p <= 'z') ? (*p - 'a' + 'A') : *p;
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
+        processor_generic_upper_case(context->one, old_size, 0, sizeof(ENDLINE)-1);
         break;
     case ES_LARGEST:
     case ES_HEADER:
-        for (p = context->one->p + old_size; p < context->one->p + context->one->size; p++) *p = (*p >= 'a' && *p <= 'z') ? (*p - 'a' + 'A') : *p;
-        PRET(string_append_mem(context->one, STRING_STRLEN(" #" ENDLINE)));
-        line_size = context->one->size - old_size;
-        PRET(string_print_append(context->one, "%*s", (int)line_size * 2, ""));
-        memcpy(context->one->p + old_size + line_size    , context->one->p + old_size, line_size);
-        memcpy(context->one->p + old_size + line_size * 2, context->one->p + old_size, line_size);
-        memset(context->one->p + old_size                , '#', line_size - (sizeof(ENDLINE)-1));
-        memset(context->one->p + old_size + line_size * 2, '#', line_size - (sizeof(ENDLINE)-1));
+        PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
+        processor_generic_upper_case(context->one, old_size, 0, sizeof(ENDLINE)-1);
+        PRET(processor_generic_box(context->one, old_size, 0, sizeof(ENDLINE)-1, '#', '#'));
         break;
     default:
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
         break;
     }
     return OK;
-}
-
-struct ExError processor_process_nex(const struct Request *request, const struct Ring *request_stream,
-    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
-{
-    const struct ExError EXOK = { OK };
-    EXPRET(processor_process_finger(request, request_stream, response, response_queue, response_stream));
-    return EXOK;
-}
-
-struct ExError processor_fixed_nex(enum FixedResponse fixed,
-    struct Response *response, struct Ring *response_queue, struct Value *response_stream)
-{
-    const struct ExError EXOK = { OK };
-    EXPRET(processor_fixed_finger(fixed, response, response_queue, response_stream));
-    return EXOK;
-}
-
-void processor_fixed_nex_failsafe(enum FixedResponse fixed, struct Value *response_stream)
-{
-    processor_fixed_finger_failsafe(fixed, response_stream);
 }

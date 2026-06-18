@@ -13,23 +13,28 @@
 
 #include <errno.h>
 
-static void server_send_low_resources_connection(unsigned char index, const struct Client *client, int fd, bool max_clients, bool max_memory, bool max_utilization)
+static enum FixedResponse server_low_resources_response(bool max_clients, bool max_memory, bool max_utilization)
+{
+    if (max_clients) return FR_MAX_CLIENTS;
+    if (max_memory) return FR_MAX_MEMORY;
+    if (max_utilization) return FR_MAX_UTILIZATION;
+    return FR_UNKNOWN;
+}
+
+static void server_send_low_resources_connection(unsigned char index, const struct Client *client, int fd, enum FixedResponse fixed)
 {
     struct Error *error;
-    enum FixedResponse fixed = FR_UNKNOWN;
-    enum ConnectionFlag flags = CF_NO;
-    struct Value response_stream;
+    struct ConstantContinuousValue response_stream;
+    ssize_t signed_sent;
     if (ACCEPTING_SOCKET_IS_HTTPS(index) || ACCEPTING_SOCKET_IS_GEMINI(index)) return;
-    if (max_clients) fixed = FR_MAX_CLIENTS;
-    if (max_memory) fixed = FR_MAX_MEMORY;
-    if (max_utilization) fixed = FR_MAX_UTILIZATION;
     if (ACCEPTING_SOCKET_IS_HTTP(index)) processor_fixed_http_failsafe(fixed, &response_stream);
     else if (ACCEPTING_SOCKET_IS_GOPHER(index)) processor_fixed_gopher_failsafe(fixed, &response_stream);
     else if (ACCEPTING_SOCKET_IS_FINGER(index)) processor_fixed_finger_failsafe(fixed, &response_stream);
     else if (ACCEPTING_SOCKET_IS_SPARTAN(index)) processor_fixed_spartan_failsafe(fixed, &response_stream);
-    else /* if (ACCEPTING_SOCKET_IS_NEX(index)) */ processor_fixed_nex_failsafe(fixed, &response_stream);
-    PGOTO(server_send_value(&response_stream, fd, &flags));
-    AGOTO((flags & CF_SATURATED) == 0);
+    else if (ACCEPTING_SOCKET_IS_NEX(index)) processor_fixed_nex_failsafe(fixed, &response_stream);
+    else /* if (ACCEPTING_SOCKET_IS_TEXT(index)) */ processor_fixed_text_failsafe(fixed, &response_stream);
+    signed_sent = send(fd, response_stream.p, response_stream.size, 0);
+    AGOTO0(signed_sent >= 0 && (size_t)signed_sent == response_stream.size, "send() failed");
     close(fd);
     return;
 
@@ -39,16 +44,12 @@ static void server_send_low_resources_connection(unsigned char index, const stru
     error_finalize(error);
 }
 
-static void server_send_low_resources_message(const struct Client *client, int fd, bool max_clients, bool max_memory, bool max_utilization)
+static void server_send_low_resources_message(const struct Client *client, int fd, enum FixedResponse fixed)
 {
-    enum FixedResponse fixed = FR_UNKNOWN;
-    struct Value response_message;
-    if (max_clients) fixed = FR_MAX_CLIENTS;
-    if (max_memory) fixed = FR_MAX_MEMORY;
-    if (max_utilization) fixed = FR_MAX_UTILIZATION;
+    const socklen_t address_size = (client->address.ss_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    struct ConstantContinuousValue response_message;
     processor_fixed_guppy_failsafe(fixed, &response_message);
-    (void)sendto(fd, response_message.parts[0].p, response_message.parts[0].size, 0,
-        (struct sockaddr*)&client->address, (client->address.ss_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in));
+    (void)sendto(fd, response_message.p, response_message.size, 0, (struct sockaddr*)&client->address, address_size);
 }
 
 static bool address_compare(const struct sockaddr_storage *a, const struct sockaddr_storage *b)
@@ -87,7 +88,8 @@ static struct Error *server_accept_connection(struct ClientBuffer *clients, stru
     EXAGOTO0(fcntl(new_poll.fd, F_SETFL, flags | O_NONBLOCK) >= 0, "fcntl() failed", EEF_CLOSE_LOG);
     if (max_clients || max_memory || max_utilization)
     {
-        server_send_low_resources_connection(index, &new_client, new_poll.fd, max_clients, max_memory, max_utilization);
+        const enum FixedResponse fixed = server_low_resources_response(max_clients, max_memory, max_utilization);
+        server_send_low_resources_connection(index, &new_client, new_poll.fd, fixed);
         return OK;
     }
 
@@ -139,7 +141,7 @@ static struct Error *server_accept_message(struct ClientBuffer *clients, struct 
         struct Error *error;
         const size_t old_size = clients->size;
         const char guppy[] = "guppy://";
-        const size_t guppy_size = sizeof(guppy) - 1;
+        const unsigned char guppy_size = sizeof(guppy) - 1;
         const size_t received = (size_t)signed_received;
         struct Client *p;
         for (p = clients->p; p < clients->p + clients->size; p++)
@@ -163,7 +165,8 @@ static struct Error *server_accept_message(struct ClientBuffer *clients, struct 
         }
         if (max_clients || max_memory || max_utilization)
         {
-            server_send_low_resources_message(&new_client, polls->p[index].fd, max_clients, max_memory, max_utilization);
+            const enum FixedResponse fixed = server_low_resources_response(max_clients, max_memory, max_utilization);
+            server_send_low_resources_message(&new_client, polls->p[index].fd, fixed);
             return OK;
         }
         

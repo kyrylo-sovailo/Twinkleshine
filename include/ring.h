@@ -7,8 +7,8 @@
 #include <stddef.h>
 
 struct Error;
-struct Value;
 struct ValueLocation;
+struct MutableValue;
 
 struct Ring
 {
@@ -25,15 +25,15 @@ void ring_finalize(struct Ring *ring);
 struct Error *ring_reserve(struct Ring *ring, size_t capacity);
 
 /* Grants access to all available bytes */
-void ring_get_all(const struct Ring *ring, struct Value *value);
+void ring_get_all(const struct Ring *ring, struct MutableValue *value);
 
 /* Grants access to arbitrary bytes */
-struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool latest, struct Value *value) NODISCARD;
+struct Error *ring_get(const struct Ring *ring, const struct ValueLocation *location, bool latest, struct MutableValue *value) NODISCARD;
 
 /* Adds first N unused bytes to ring, then optionally populate/get */
 struct Error *ring_push(struct Ring *ring, size_t size) NODISCARD;
 struct Error *ring_push_write(struct Ring *ring, size_t size, const char *p) NODISCARD;
-struct Error *ring_push_get(struct Ring *ring, size_t size, struct Value *value) NODISCARD;
+struct Error *ring_push_get(struct Ring *ring, size_t size, struct MutableValue *value) NODISCARD;
 
 /* Removes first N used bytes, before that optionally read */
 struct Error *ring_pop(struct Ring *ring, size_t size) NODISCARD;
