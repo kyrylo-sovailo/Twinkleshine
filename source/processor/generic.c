@@ -2,11 +2,15 @@
 #include "../../commonlib/include/string.h"
 #include "../../include/constants.h"
 #include "../../include/language.h"
+#include "../../include/parser.h"
 #include "../../include/random.h"
 #include "../../include/tables.h"
 #include "../../include/time.h"
 
 #include <string.h>
+
+#define ACCEPTING_SOCKET_IS_PLAINTEXT(INDEX) (ACCEPTING_SOCKET_IS_GOPHER(INDEX) || ACCEPTING_SOCKET_IS_FINGER(INDEX) || ACCEPTING_SOCKET_IS_NEX(INDEX) || ACCEPTING_SOCKET_IS_TEXT(INDEX))
+#define ACCEPTING_SOCKET_IS_QUESTION(INDEX) (ACCEPTING_SOCKET_IS_HTTP(INDEX) || ACCEPTING_SOCKET_IS_HTTPS(INDEX) || ACCEPTING_SOCKET_IS_GEMINI(INDEX) || ACCEPTING_SOCKET_IS_GUPPY(INDEX))
 
 enum ResourceNormalizeSlashState
 {
@@ -24,18 +28,19 @@ enum ResourceNormalizeQuestionState
     RNQ_CONSUME_LANGUAGE_FIRST_CHARACTERS
 };
 
-static void memset_alternating(char *destination, char c1, char c2, size_t n)
+static void memset_alternating(char *destination, char c1, char c2, size_t n1, size_t n2)
 {
     if (c1 == c2)
     {
-        memset(destination, c1, n);
+        memset(destination, c1, n1);
     }
     else
     {
         /* Lagrange can't handle long sequences of equal symbols */
         size_t i;
-        for (i = 0; i < n; i++) destination[i] = (i & 1) ? c1 : c2;
+        for (i = 0; i < n1; i++) destination[i] = (i & 1) ? c1 : c2;
     }
+    memset(destination + n1, ' ', n2 - n1);
 }
 
 static void trim_leading_shash(struct ConstantValue *resource)
@@ -78,12 +83,11 @@ static void processor_generic_normalize_slash(struct ConstantValue *resource, ch
         char c;
         while (local_resource.parts[i].size == 0) { if (i == 0) goto breakbreak; i--; }
         c = local_resource.parts[i].p[local_resource.parts[i].size - 1];
-        resource->parts[i].size--;
+        local_resource.parts[i].size--;
         if (c == '/') break;
-        if (language_size == MAX_LANGUAGE_SIZE) { *language = '\0'; return; } /* MAX_LANGUAGE_SIZE exceeded, it is definitely not a language */
+        if (language_size == MAX_LANGUAGE_SIZE) return; /* MAX_LANGUAGE_SIZE exceeded, it is definitely not a language */
         language_size++;
         language_str[MAX_LANGUAGE_SIZE - language_size] = c;
-        resource->parts[i].size--;
     }
     breakbreak:
     *language = language_get(&language_str[MAX_LANGUAGE_SIZE - language_size], language_size);
@@ -109,13 +113,13 @@ static void processor_generic_normalize_question(struct ConstantValue *resource,
     for (i = 0;; local_resource.parts[i].p++, local_resource.parts[i].size--)
     {
         char c;
-        while (local_resource.parts[i].size == 0) { i++; if (i == VALUE_PARTS) { trim_trailing_shash(resource); *language = '\0'; return; } } /* Not found */
+        while (local_resource.parts[i].size == 0) { i++; if (i == VALUE_PARTS) { trim_trailing_shash(resource); return; } } /* Not found */
         c = *local_resource.parts[i].p;
         if (c == '#' || c == '?')
         {
             value_first(resource, value_size(resource) - value_size(&local_resource));
             trim_trailing_shash(resource);
-            if (c == '#') { *language = '\0'; return; }
+            if (c == '#') return;
             break;
         }
     }
@@ -125,7 +129,7 @@ static void processor_generic_normalize_question(struct ConstantValue *resource,
     for (i = 0;; local_resource.parts[i].p++, local_resource.parts[i].size--)
     {
         char c;
-        while (local_resource.parts[i].size == 0) { i++; if (i == VALUE_PARTS) { *language = '\0'; return; } } /* Not found */
+        while (local_resource.parts[i].size == 0) { i++; if (i == VALUE_PARTS) goto breakbreak; } /* Not found */
         c = *local_resource.parts[i].p;
         if (c == '?')
         {
@@ -155,7 +159,7 @@ static void processor_generic_normalize_question(struct ConstantValue *resource,
             /* Do nothing */
         }
     }
-
+    breakbreak:
     if (language_size >= lang_size)
     {
         *language = language_get(language_str, language_size - lang_size);
@@ -190,19 +194,25 @@ void processor_generic_upper_case(struct CharBuffer *string, size_t old_string_s
     char *p;
     for (p = string->p + old_string_size + prefix_size; p < string->p + string->size - suffix_size; p++)
     {
-        if (*p >= 'a' && *p <= 'z') *p -= (char)('a' + 'A');
+        if (*p >= 'a' && *p <= 'z') *p -= (char)('a' - 'A');
     }
 }
 
 struct Error *processor_generic_box(struct CharBuffer *string, size_t old_string_size, size_t prefix_size, size_t suffix_size, char c1, char c2)
 {
+    const char *p;
     const size_t full_line_size = string->size - old_string_size;
     const size_t line_size = full_line_size - prefix_size - suffix_size;
-    PRET(string_resize(string, string->size + 2 * line_size));
+    size_t line_size_glyphs = line_size;
+    for (p = string->p + old_string_size; p < string->p + old_string_size + full_line_size; p++)
+    {
+        if ((*p & 0xC0) == 0x80) line_size_glyphs--;
+    }
+    PRET(string_resize(string, string->size + 2 * full_line_size));
     memcpy(string->p + old_string_size + full_line_size    , string->p + old_string_size, full_line_size);
     memcpy(string->p + old_string_size + full_line_size * 2, string->p + old_string_size, full_line_size);
-    memset_alternating(string->p + old_string_size                      + prefix_size, c1, c2, line_size);
-    memset_alternating(string->p + old_string_size + full_line_size * 2 + prefix_size, c1, c2, line_size);
+    memset_alternating(string->p + old_string_size                      + prefix_size, c1, c2, line_size_glyphs, line_size);
+    memset_alternating(string->p + old_string_size + full_line_size * 2 + prefix_size, c1, c2, line_size_glyphs, line_size);
     return OK;
 }
 
@@ -210,15 +220,15 @@ static struct Error *processor_generic_contact(unsigned char a, struct Processor
 static struct Error *processor_generic_contact(unsigned char a, struct ProcessorPrintContext *c)
 {
     const char *phone_str = (c->language == 'd') ? "Handy" : "Phone";
-    if (ACCEPTING_SOCKET_IS_HTTP(a) || ACCEPTING_SOCKET_IS_HTTPS(a) || ACCEPTING_SOCKET_IS_GEMINI(a) || ACCEPTING_SOCKET_IS_SPARTAN(a) || ACCEPTING_SOCKET_IS_GUPPY(a))
-    {
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "mailto:k.sovailo@gmail.com", "Email: k.sovailo@gmail.com"));
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "tel:+4917635479038", "%s: +49 1763 5479038", phone_str));
-    }
-    else
+    if (ACCEPTING_SOCKET_IS_PLAINTEXT(a))
     {
         PRET(processor_print(a, c, ES_NORMAL, NULL, "Email: k.sovailo@gmail.com"));
         PRET(processor_print(a, c, ES_NORMAL, NULL, "%s: +49 1763 5479038", phone_str));
+    }
+    else
+    {
+        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "mailto:k.sovailo@gmail.com", "Email: k.sovailo@gmail.com"));
+        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "tel:+4917635479038", "%s: +49 1763 5479038", phone_str));
     }
     PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://github.com/kyrylo-sovailo", "Github"));
     PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://linkedin.com/in/kyrylo-sovailo-19b4541b9", "LinkedIn"));
@@ -241,55 +251,113 @@ static struct Error *processor_generic_protocols(unsigned char a, struct Process
     return OK;
 }
 
+static struct Error *processor_generic_header(unsigned char a, struct ProcessorPrintContext *c, const char *resource) NODISCARD;
+static struct Error *processor_generic_header(unsigned char a, struct ProcessorPrintContext *c, const char *resource)
+{
+    const char initial_language = c->language;
+    if (initial_language != 'e')
+    {
+        c->language = 'e';
+        PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, resource, "English version"));
+    }
+    if (initial_language != 'd')
+    {
+        c->language = 'd';
+        PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, resource, "Deutsche Version"));
+    }
+    c->language = initial_language;
+    return OK;
+}
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-security"
 static struct Error *processor_generic_footer(unsigned char a, struct ProcessorPrintContext *c, const char *resource) NODISCARD;
 static struct Error *processor_generic_footer(unsigned char a, struct ProcessorPrintContext *c, const char *resource)
 {
-    const char *name;
-    const char *names[7], *references[7];
+    const char *protocol_names[9] = {
+        "HTTP",
+        "HTTPS",
+        "Gopher",
+        "Finger",
+        "Gemini",
+        "Spartan",
+        "Nex",
+        "Text",
+        "Guppy"
+    };
+    const char *protocol_references[9] = {
+        "http://" DOMAIN_NAME HTTP_PORT_STRING,
+        "https://" DOMAIN_NAME HTTPS_PORT_STRING,
+        "gopher://" DOMAIN_NAME GOPHER_PORT_STRING,
+        "finger://" DOMAIN_NAME FINGER_PORT_STRING,
+        "gemini://" DOMAIN_NAME GEMINI_PORT_STRING,
+        "spartan://" DOMAIN_NAME SPARTAN_PORT_STRING,
+        "nex://" DOMAIN_NAME NEX_PORT_STRING,
+        "text://" DOMAIN_NAME TEXT_PORT_STRING,
+        "guppy://" DOMAIN_NAME GUPPY_PORT_STRING
+    };
+    const char *language_question_str, *language_slash_str;
     const char *footnote_str, *version_str, *why_str, *back_str, *updated_str;
+    unsigned char selection[7];
     unsigned char i = 0;
+    
+    language_question_str = language_question(c->language, c->requested_language, IMPLICIT_LANGUAGE);
+    language_slash_str = language_slash(c->language, c->requested_language, IMPLICIT_LANGUAGE);
     if (c->language == 'd')
+    {
+        footnote_str = "Fußnote";
+        version_str = "Sie lesen die %s-Version dieser Seite. Diese Seite ist auch über %s, %s, %s, %s, %s, %s und %s verfügbar:";
+        why_str = "Was sind diese Referenzen und warum kann ich sie nicht öffnen?";
+        back_str = "Zurück zur Startseite";
+        updated_str = "Aktualisiert: 21. Juni 2026";
+    }
+    else
     {
         footnote_str = "Footnote";
         version_str = "You are reading the %s version of this page. This page is also available through %s, %s, %s, %s, %s, %s, and %s:";
         why_str = "What are those and why can't I open them";
         back_str = "Back to the index page";
-        updated_str = "Updated: 16 June 2026";
+        updated_str = "Updated: 21 June 2026";
     }
-    else
-    {
-        footnote_str = "Fußnote";
-        version_str = "Sie lesen die %s-Version dieser Seite. Diese Seite ist auch über %s, %s, %s, %s, %s, %s, %s und %s verfügbar:";
-        why_str = "Was sind diese Referenzen und warum kann ich sie nicht öffnen?";
-        back_str = "Zurück zur Startseite";
-        updated_str = "Aktualisiert: 16. Juni 2026";
-    }
+
+    if (!ACCEPTING_SOCKET_IS_HTTP(a) && !ACCEPTING_SOCKET_IS_HTTPS(a)) { selection[i] = 0; i++; }
+    if (!ACCEPTING_SOCKET_IS_GOPHER(a)) { selection[i] = 2; i++; }
+    if (!ACCEPTING_SOCKET_IS_FINGER(a)) { selection[i] = 3; i++; }
+    if (!ACCEPTING_SOCKET_IS_GEMINI(a)) { selection[i] = 4; i++; }
+    if (!ACCEPTING_SOCKET_IS_SPARTAN(a)){ selection[i] = 5; i++; }
+    if (!ACCEPTING_SOCKET_IS_NEX(a))    { selection[i] = 6; i++; }
+    if (!ACCEPTING_SOCKET_IS_TEXT(a))   { selection[i] = 7; i++; }
+    if (!ACCEPTING_SOCKET_IS_GUPPY(a))  { selection[i] = 8; i++; }
 
     PRET(processor_print(a, c, ES_LARGE, NULL, footnote_str));
-    if (ACCEPTING_SOCKET_IS_HTTP(a))        name = "HTTP";
-    else if (ACCEPTING_SOCKET_IS_HTTPS(a))  name = "HTTPS";
-    else                                                             { names[i] = "HTTP";   references[i] = "http://"   DOMAIN_NAME HTTP_PORT_STRING;   i++; }
-    if (ACCEPTING_SOCKET_IS_GOPHER(a))      name = "Gopher";    else { names[i] = "Gopher"; references[i] = "gopher://" DOMAIN_NAME GOPHER_PORT_STRING; i++; }
-    if (ACCEPTING_SOCKET_IS_FINGER(a))      name = "Finger";    else { names[i] = "Finger"; references[i] = "finger://" DOMAIN_NAME FINGER_PORT_STRING; i++; }
-    if (ACCEPTING_SOCKET_IS_GEMINI(a))      name = "Gemini";    else { names[i] = "Gemini"; references[i] = "gemini://" DOMAIN_NAME GEMINI_PORT_STRING; i++; }
-    if (ACCEPTING_SOCKET_IS_SPARTAN(a))     name = "Spartan";   else { names[i] = "Spartan";references[i] = "spartan://"DOMAIN_NAME SPARTAN_PORT_STRING;i++; }
-    if (ACCEPTING_SOCKET_IS_NEX(a))         name = "Nex";       else { names[i] = "Nex";    references[i] = "nex://"    DOMAIN_NAME NEX_PORT_STRING;    i++; }
-    if (ACCEPTING_SOCKET_IS_TEXT(a))        name = "Text";      else { names[i] = "Text";   references[i] = "text://"   DOMAIN_NAME TEXT_PORT_STRING;   i++; }
-    if (ACCEPTING_SOCKET_IS_GUPPY(a))       name = "Guppy";     else { names[i] = "Guppy";  references[i] = "guppy://"  DOMAIN_NAME GUPPY_PORT_STRING;  i++; }
-
-    PRET(processor_print(a, c, ES_NORMAL, NULL, version_str,
-        name, names[0], names[1], names[2], names[3], names[4], names[5], names[6]));
-    for (i = 0; i < sizeof(names) / sizeof(*names); i++)
+    PRET(processor_print(a, c, ES_NORMAL, NULL, version_str, protocol_names[a/2],
+        protocol_names[selection[0]], protocol_names[selection[1]],
+        protocol_names[selection[2]], protocol_names[selection[3]],
+        protocol_names[selection[4]], protocol_names[selection[5]],
+        protocol_names[selection[6]]));
+    for (i = 0; i < sizeof(selection) / sizeof(*selection); i++)
     {
+        const unsigned char selected = selection[i];
+        const bool language_question = ACCEPTING_SOCKET_IS_QUESTION(2*selected);
+        const bool language_explicit = *language_question_str != '\0';
+        const bool gopher = selected == 2;
+        const bool nex = selected == 6;
+        const bool resource_nonempty = *resource != '\0';
+        const bool resource_language_nonempty = resource_nonempty || gopher || language_explicit;
+        const bool resource_language_slash = !resource_nonempty && !gopher && language_explicit && !language_question;
+        const bool begin_slash = resource_language_nonempty && !resource_language_slash;
+        const bool end_slash = nex;
         char reference[64];
-        strcpy(reference, references[i]);
-        if (resource != NULL) strcat(reference, resource);
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, reference, "%s", names[i]));
+        strcpy(reference, protocol_references[selected]);
+        if (begin_slash) strcat(reference, "/");
+        if (gopher) strcat(reference, "1");
+        strcat(reference, resource);
+        strcat(reference, language_question ? language_question_str : language_slash_str);
+        if (end_slash) strcat(reference, "/");
+        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, reference, "%s", protocol_names[selected]));
     }
     PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "smolnet", why_str));
-    if (resource != NULL) { PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "", back_str)); }
+    if (*resource != '\0') { PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "", back_str)); } /* We are on landing page, don't print "back" */
     PRET(processor_print(a, c, ES_NORMAL, NULL, updated_str));
     return OK;
 }
@@ -298,10 +366,11 @@ static struct Error *processor_generic_footer(unsigned char a, struct ProcessorP
 struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c, const struct ConstantValue *resource, bool *invalid_resource)
 {
     struct ConstantValue normalized_resource = *resource;
-    if (ACCEPTING_SOCKET_IS_HTTP(a) || ACCEPTING_SOCKET_IS_HTTPS(a) || ACCEPTING_SOCKET_IS_GEMINI(a) || ACCEPTING_SOCKET_IS_GUPPY(a))
-        processor_generic_normalize_question(&normalized_resource, &c->language);
-    else
-        processor_generic_normalize_slash(&normalized_resource, &c->language);
+    if (ACCEPTING_SOCKET_IS_QUESTION(a)) processor_generic_normalize_question(&normalized_resource, &c->requested_language);
+    else processor_generic_normalize_slash(&normalized_resource, &c->requested_language);
+    c->language = c->requested_language;
+    if (c->language == '\0') c->language = c->request->language;
+    if (c->language == '\0') c->language = IMPLICIT_LANGUAGE;
 
     if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("")))
     {
@@ -309,7 +378,22 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         PRET(processor_print(a, c, ES_INITIALIZE, NULL, NULL));
         if (c->language == 'd')
         {
+            PRET(processor_print(a, c, ES_HEADER, NULL, "Kyrylos Website"));
+            PRET(processor_generic_header(a, c, ""));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Das hier ist meine Webseite. Es gibt viele andere, aber diese ist meine."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Hier könen Sie mehr über mich und über den Server, der diese Website betreibt, erfahren."));
+            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "about", "Über mich"));
+            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "twinkleshine", "Über Twinkleshine"));
+            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "smolnet", "Über SmolNet"));
+            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "projects", "Meine Projekte"));
+            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "resume", "Mein Lebenslauf"));
+            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "contact", "Kontakt"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Zufälliger Fakt: %s", fun_facts_de[random_rand(sizeof(fun_facts_de)/sizeof(fun_facts_de[0]))]));
+        }
+        else
+        {
             PRET(processor_print(a, c, ES_HEADER, NULL, "Kyrylo's website"));
+            PRET(processor_generic_header(a, c, ""));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "This is my website. There are many like it, but this one is mine."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Here you can learn more about me and about the server that powers this website:"));
             PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "about", "About me"));
@@ -320,20 +404,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
             PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "contact", "My contacts"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Random fact: %s", fun_facts[random_rand(sizeof(fun_facts)/sizeof(fun_facts[0]))]));
         }
-        else
-        {
-            PRET(processor_print(a, c, ES_HEADER, NULL, "Kyrylos Website"));
-            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Das hier ist meine Webseite. Es gibt viele andere, aber dies ist meins."));
-            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Hier könen Sie mehr über mich und über den Server, der diese Website betreibt, erfahren."));
-            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "about", "Über mich"));
-            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "twinkleshine", "Über Twinkleshine"));
-            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "smolnet", "Über SmolNet"));
-            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "projects", "Meine Projekte"));
-            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "resume", "Mein Lebenslauf"));
-            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "contact", "Kontakt"));
-            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Zufälliger Fakt: %s", fun_facts_de[random_rand(sizeof(fun_facts_de)/sizeof(fun_facts_de[0]))]));
-        }
-        PRET(processor_generic_footer(a, c, NULL));
+        PRET(processor_generic_footer(a, c, ""));
         PRET(processor_print(a, c, ES_FINALIZE, NULL, NULL));
     }
     else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("about")))
@@ -343,6 +414,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         if (c->language == 'd')
         {
             PRET(processor_print(a, c, ES_HEADER, NULL, "Über mich"));
+            PRET(processor_generic_header(a, c, "about"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Mein Name ist Kyrylo."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Ich habe vor Kurzem mein Masterstudium in Computational Engineering an der TU Darmstadt abgeschlossen."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Ich mag Programmierung, Elektronik und Ponys."));
@@ -354,6 +426,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         else
         {
             PRET(processor_print(a, c, ES_HEADER, NULL, "About me"));
+            PRET(processor_generic_header(a, c, "about"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "My name is Kyrylo."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "I recently graduated from TU Darmstadt with a MSc in Computational Engineering."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "I like programming, electronics, and ponies."));
@@ -362,7 +435,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Some of my other projects are listed here:"));
             PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "projects", "Projects"));
         }
-        PRET(processor_generic_footer(a, c, "/about"));
+        PRET(processor_generic_footer(a, c, "about"));
         PRET(processor_print(a, c, ES_FINALIZE, NULL, NULL));
     }
     else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("twinkleshine")))
@@ -371,9 +444,10 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         char time_since_startup[64];
         time_to_string_uptime(time_since_startup, c->language);
         PRET(processor_print(a, c, ES_INITIALIZE, NULL, NULL));
+        PRET(processor_print(a, c, ES_HEADER, NULL, "Twinkleshine"));
+        PRET(processor_generic_header(a, c, "twinkleshine"));
         if (c->language == 'd')
         {
-            PRET(processor_print(a, c, ES_HEADER, NULL, "Twinkleshine"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Diese Website wird vom Twinkleshine-Server betrieben."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Twinkleshine wurde vollständig von mir in C 89 geschrieben. Sein charakteristisches Merkmal (abgesehen davon, dass er im Jahre des Herrn 2026 in C geschrieben wurde) ist, dass er nicht nur HTTP(S) unterstützt, sondern auch Gopher, Gemini und andere SmolNet-Protokolle. Alle Protokolle werden in einem Prozess bedient, die Seiten für verschiedene Protokolle werden mit derselben Logik generiert."));
             PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://github.com/kyrylo-sovailo/Twinkleshine", "Quellcode"));
@@ -393,6 +467,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         else
         {
             PRET(processor_print(a, c, ES_HEADER, NULL, "Twinkleshine"));
+            PRET(processor_generic_header(a, c, "twinkleshine"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "This website is powered by the Twinkleshine server."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Twinkleshine is fully written by me in C 89. Its defining feature (apart from being written in C in the year of our Lord 2026) is that it supports not only HTTP(S), but also Gopher, Gemini, and other SmolNet protocols. All protocols are served by one process, pages for different protocols are generated using the exact same logic."));
             PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://github.com/kyrylo-sovailo/Twinkleshine", "Source code"));
@@ -409,7 +484,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "If you are reading this, it means that Twinkleshine managed not to fail for quite some time."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Current uptime: %s.", time_since_startup));
         }
-        PRET(processor_generic_footer(a, c, "/twinkleshine"));
+        PRET(processor_generic_footer(a, c, "twinkleshine"));
         PRET(processor_print(a, c, ES_FINALIZE, NULL, NULL));
     }
     else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("smolnet")))
@@ -422,27 +497,54 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         else mozz_reference = "https://mozz.us";
         PRET(processor_print(a, c, ES_INITIALIZE, NULL, NULL));
         PRET(processor_print(a, c, ES_HEADER, NULL, "SmolNet"));
-        PRET(processor_print(a, c, ES_LARGE,  NULL, "Preamble"));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Long long ago, when dinosaurs roamed the Earth, all pages in the Internet looked like this: plain text on screens. Then Javascript ruined everything."));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "What most people know as \"the Internet\" is HTML pages delivered via the HTTP protocol. Remember how we used to type \"http://www\" before website names? Yes, that was protocol specification back when browsers didn't insert one automatically. HTML/HTTP eventually won over because it was flexible and allowed pictures. But it wasn't the first, nor was it, in fact, the last."));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Other protocols, like Gopher and Gemini, can be used to access information too. They, along with some others, are collectively known as \"SmolNet\", \"Small Net\", or, sometimes,  \"Small Web\"."));
-        PRET(processor_print(a, c, ES_LARGE,  NULL, "Why can't I open the links?"));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Those are not HTTP(S) links. If you can't open them, it most probably means that your browser doesn't support them. Your browser can't \"speak\" the right language. Unfortunately, this is the case for the most popular browsers. Firefox once supported Gopher, but those days are gone."));
-        PRET(processor_print(a, c, ES_LARGE,  NULL, "What makes SmolNet different?"));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Most notably, you won't see a lot of pictures or videos on the SmolNet. Why? For the same reason you don't see pictures in the books. It is distracting. SmolNet, and Gemini in particular, positions itself as a digital library."));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "HTTP/HTML allowed (and was inevitably overrun by) tracking, spyware, pop-up advertisements, and endless scroll. SmolNet protocols don't do that, can't do that, and some were developed to explicitly not have the capacity to do that. Not to say that commerce is not possible on SmolNet in principle, but in practice you won't find it."));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Furthermore, some people find it problematic that HTML pages demand you to display them as-is (e.g. in the exact font, color, and spacing, and with advertisements). They are, therefore, taking away your freedom."));
-        PRET(processor_print(a, c, ES_LARGE,  NULL, "How can I access SmolNet?"));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, " SmolNet pages can be opened in special browsers, including:"));
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, ACCEPTING_SOCKET_IS_GEMINI(a) ? "gemini://skyjake.fi/lagrange" : "https://gmi.skyjake.fi/lagrange", "Lagrange (my recommendation)"));
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://lynx.invisible-island.net/", "Lynx (has HTTP support)"));
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://sr.ht/~julienxx/Castor", "Castor"));
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://kristall.random-projects.net", "Kristall"));
-        PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "In case you aren't ready to install whole additional browser to access SmolNet, here are some alterative options:"));
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, mozz_reference, "Mozz.us (proxy)"));
-        PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://addons.mozilla.org/de/firefox/addon/geminize", "Geminize (Firefox extension)"));
-        PRET(processor_generic_footer(a, c, "/smolnet"));
+        PRET(processor_generic_header(a, c, "smolnet"));
+        if (c->language == 'd')
+        {
+            PRET(processor_print(a, c, ES_LARGE, NULL, "Präambel"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Vor langer, langer Zeit, als Dinosaurier die Erde bevölkerten, sahen alle Seiten im Internet so aus: reiner Text auf dem Bildschirm. Dann hat JavaScript den Spaß ruiniert."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Was die meisten Leute als \"Internet\" kennen, sind HTML-Seiten, die über das HTTP-Protokoll ausgeliefert werden. Erinnern Sie sich noch, wie wir früher \"http://www\" vor Webseitennamen getippt haben? Genau, das war die Protokollspezifikation, da die Browsers noch keine automatische Spezifikation einfügten. HTML/HTTP setzte sich schließlich durch, weil es flexibel war und die Benutzung von Bildern ermöglichte. HTTP war aber weder das erste noch das letzte erfundene Protokoll."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Auch andere Protokolle wie Gopher und Gemini können für den Zugriff auf Informationen verwendet werden. Sie werden zusammen mit einigen anderen als \"SmolNet\", \"Small Net\" oder manchmal auch \"Small Web\" bezeichnet."));
+            PRET(processor_print(a, c, ES_LARGE, NULL, "Warum kann ich die Links nicht öffnen?"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Sie sind keine HTTP(S)-Links. Wenn Sie sie nicht öffnen können, unterstützt Ihr Browser sie höchstwahrscheinlich nicht. Ihr Browser \"spricht\" die richtige \"Sprache\" nicht. Leider trifft dies auf die meisten gängigen Browser zu. Firefox unterstützte früher Gopher, aber diese Zeiten sind vorbei."));
+            PRET(processor_print(a, c, ES_LARGE, NULL, "Was unterscheidet SmolNet von dem gewöhnlichen Internet?"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Vor allem werden Sie auf SmolNet nicht viele Bilder oder Videos sehen. Wieso? Aus demselben Grund, aus dem Sie in Büchern keine Bilder finden. Sie lenken von dem Text ab. SmolNet und insbesondere Gemini positioniert sich als digitale Bibliothek."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "HTTP/HTML ermöglichte (und wurde unvermeidbar überschwemmt mit) Spionensoftware, Tracking, Pop-up-Werbungen und endlosem Scrollen. SmolNet-Protokolle tun das nicht, können das nicht, und die neuesten von denen wurden explizit mit dem Ziel entwickelt, das nicht zu ermöglichen. Das heißt nicht, dass Handel auf SmolNet prinzipiell unmöglich ist, aber in der Praxis werden Sie ihn nicht finden."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Darüber hinaus empfinden manche es als problematisch, dass HTML-Seiten die Anzeige im Originalzustand erfordern (z. B. mit der exakten Schriftart, Farbe und Zeilenabstand sowie mit Werbungen). Dadurch wird die Nutzerfreiheit eingeschränkt."));
+            PRET(processor_print(a, c, ES_LARGE, NULL, "Wie kann ich auf SmolNet zugreifen?"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "SmolNet-Seiten können in speziellen Browsern geöffnet werden, darunter:"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, ACCEPTING_SOCKET_IS_GEMINI(a) ? "gemini://skyjake.fi/lagrange" : "https://gmi.skyjake.fi/lagrange", "Lagrange (meine Empfehlung)"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://lynx.invisible-island.net", "Lynx (hat HTTP-Unterstützung)"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://sr.ht/~julienxx/Castor", "Castor"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://kristall.random-projects.net", "Kristall (von einem Deutschen entwickelt!)"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Falls Sie nicht bereit sind, einen zusätzlichen Browser für den Zugriff auf SmolNet zu installieren, finden Sie hier einige Alternativen:"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, mozz_reference, "Mozz.us (Proxy)"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://addons.mozilla.org/de/firefox/addon/geminize", "Geminize (Firefox-Erweiterung)"));
+        }
+        else
+        {
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Preamble"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Long long ago, when dinosaurs roamed the Earth, all pages in the Internet looked like this: plain text on screens. Then Javascript ruined everything."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "What most people know as \"the Internet\" is HTML pages delivered via the HTTP protocol. Remember how we used to type \"http://www\" before website names? Yes, that was protocol specification back when browsers didn't insert one automatically. HTML/HTTP eventually won over because it was flexible and allowed pictures. But it wasn't the first, nor was it, in fact, the last."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Other protocols, like Gopher and Gemini, can be used to access information too. They, along with some others, are collectively known as \"SmolNet\", \"Small Net\", or, sometimes,  \"Small Web\"."));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Why can't I open the links?"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Those are not HTTP(S) links. If you can't open them, it most probably means that your browser doesn't support them. Your browser can't \"speak\" the right \"language\". Unfortunately, this is the case for the most popular browsers. Firefox once supported Gopher, but those days are gone."));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "What makes SmolNet different?"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Most notably, you won't see a lot of pictures or videos on the SmolNet. Why? For the same reason you don't see pictures in the books. It is distracting. SmolNet, and Gemini in particular, positions itself as a digital library."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "HTTP/HTML allowed (and was inevitably overrun by) tracking, spyware, pop-up advertisements, and endless scroll. SmolNet protocols don't do that, can't do that, and the new ones were developed explicitly to not have the capacity to do that. Not to say that commerce is not possible on SmolNet in principle, but in practice you won't find it."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Furthermore, some people find it problematic that HTML pages demand you to display them as-is (e.g. in the exact font, color, and spacing, and with advertisements). They are, therefore, taking away your freedom."));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "How can I access SmolNet?"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, " SmolNet pages can be opened in special browsers, including:"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, ACCEPTING_SOCKET_IS_GEMINI(a) ? "gemini://skyjake.fi/lagrange" : "https://gmi.skyjake.fi/lagrange", "Lagrange (my recommendation)"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://lynx.invisible-island.net", "Lynx (has HTTP support)"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://sr.ht/~julienxx/Castor", "Castor"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://kristall.random-projects.net", "Kristall"));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "In case you aren't ready to install whole additional browser to access SmolNet, here are some alterative options:"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, mozz_reference, "Mozz.us (proxy)"));
+            PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://addons.mozilla.org/de/firefox/addon/geminize", "Geminize (Firefox extension)"));
+        }
+        PRET(processor_generic_footer(a, c, "smolnet"));
         PRET(processor_print(a, c, ES_FINALIZE, NULL, NULL));
+        
     }
     else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("contact")))
     {
@@ -450,15 +552,16 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         PRET(processor_print(a, c, ES_INITIALIZE, NULL, NULL));
         if (c->language == 'd')
         {
-            PRET(processor_print(a, c, ES_HEADER, NULL, "Contact information"));
+            PRET(processor_print(a, c, ES_HEADER, NULL, "Kontakt"));
         }
         else
         {
-            PRET(processor_print(a, c, ES_HEADER, NULL, "Kontakt"));
+            PRET(processor_print(a, c, ES_HEADER, NULL, "Contact information"));
         }
+        PRET(processor_generic_header(a, c, "contact"));
         PRET(processor_print(a, c, ES_NORMAL, NULL, "Kyrylo Sovailo."));
         PRET(processor_generic_contact(a, c));
-        PRET(processor_generic_footer(a, c, "/contact"));
+        PRET(processor_generic_footer(a, c, "contact"));
         PRET(processor_print(a, c, ES_FINALIZE, NULL, NULL));
     }
     else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("projects")))
@@ -469,6 +572,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         if (c->language == 'd')
         {
             PRET(processor_print(a, c, ES_HEADER, NULL, "Meine Projekte"));
+            PRET(processor_generic_header(a, c, "projects"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Ein peinlich großer Teil meines Codes ist proprietär, zu spezifisch, verloren oder nicht der Rede wert. Trotzdem kann ich einigen Code teilen:"));
             
             PRET(processor_print(a, c, ES_LARGE, NULL, "Twinkleshine"));
@@ -498,6 +602,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         else
         {
             PRET(processor_print(a, c, ES_HEADER, NULL, "My projects"));
+            PRET(processor_generic_header(a, c, "projects"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Embarrassingly large part of my code is proprietary, oddly specific, lost to time, or not worthy of display. Still, here is something I can share:"));
             
             PRET(processor_print(a, c, ES_LARGE, NULL, "Twinkleshine"));
@@ -509,7 +614,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
             PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://github.com/kyrylo-sovailo/PersonalDispatcher", "KPD"));
             
             PRET(processor_print(a, c, ES_LARGE, NULL, "Benchmark"));
-            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Comparison of the programming language performances, fairest of them all. The selected problem is finding the shortest path in a sparse matrix. Spoiler: assembly won."));
+            PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Comparison of the programming language performances, fairest of them all. The selection problem is finding the shortest path in a sparse matrix. Spoiler: assembly won."));
             PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://github.com/kyrylo-sovailo/benchmark", "Benchmark"));
 
             PRET(processor_print(a, c, ES_LARGE, NULL, "Devtemplate"));
@@ -525,7 +630,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
             PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://github.com/kyrylo-sovailo/fool-moon", "Fool Moon"));
         }
         
-        PRET(processor_generic_footer(a, c, "/projects"));
+        PRET(processor_generic_footer(a, c, "projects"));
         PRET(processor_print(a, c, ES_FINALIZE, NULL, NULL));
     }
     else if (value_compare_case_mem(&normalized_resource, STRING_STRLEN("resume")))
@@ -535,76 +640,6 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         PRET(processor_print(a, c, ES_HEADER, NULL, "Kyrylo Sovailo"));
         PRET(processor_generic_contact(a, c));
         if (c->language == 'd')
-        {
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Date of Birth: 08.10.2000"));
-
-            PRET(processor_print(a, c, ES_LARGER, NULL, "Education"));
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Computational Engineering (CE) M.Sc."));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "At TU Darmstadt"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Specialization: Computational Robotics"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 04.2023 - 12.2025"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Final Grade: 2.1"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Grade: 1.7"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Topic: Adding spatial awareness to embedding-based anomaly detection methods for automated industrial inspection"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis result: Developed an anomaly detection method with 95%% accuracy by combining classical algorithms with foundation models (Python, PyTorch, Transformers)."));
-
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Computational Engineering Science (CES) B.Sc."));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "At RWTH Aachen University"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 10.2018 - 04.2023"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Final Grade: 2.4"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Grade: 1.7"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Topic: Balancing a 2D inverted pendulum with a Franka Panda robotic arm"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis result: Developed inverse kinematics, inverse dynamics, and control algorithms that enabled the robot to balance a 2-DOF inverse pendulum (ROS, C++, Python)."));
-
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "High School"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "At Studienkolleg at Free University Berlin, Technical Course"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 09.2017 - 09.2018"));
-
-            PRET(processor_print(a, c, ES_LARGER, NULL, "Professional Experience"));
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Student Assistant"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "At Goethe University Frankfurt (Buchmann Institute for Molecular Life Sciences, BMLS)"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 06.2023 - 07.2024"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Key achievements:"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Developed graphical slicing software with support for features unique to a bio-3D-printer (C#, C++, Slic3r)."));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Ported printer control software to new hardware (C++, Arduino)."));
-
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Intern"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "At Continental AG"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 03.2022 - 05.2022"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Key achievements:"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Developed a tool for generation of C code from CAN database (Python, C, CAPL)."));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Automated the software build process for a V850 microcontroller (CMake, Python)."));
-            
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Student Assistant"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "At RWTH Aachen University (Institute for Data Science in Mechanical Engineering, DSME)"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 04.2021 - 12.2021"));
-            PRET(processor_print(a, c, ES_NORMAL, NULL, "Key achievements:"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Implemented high-level APIs and developed control algorithms for a Franka Panda robotic arm (real-time Linux, C++, Python)."));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Implemented a standalone (non-ROS) software simulator for the robot (C++, Gazebo)."));
-
-            PRET(processor_print(a, c, ES_LARGER, NULL, "IT Skills"));
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Software Development"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Expert: C, C++, Python, CMake"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: Matlab/Simulink, PyTorch, Git, Linux, LaTeX"));
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Hardware Development"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: KiCAD, FreeCAD"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Basics: Autodesk Inventor"));
-            PRET(processor_print(a, c, ES_LARGE,  NULL, "Embedded Development"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Expert: C/C++ (Atmel AVR, ARM, Raspberry Pi, Nvidia Jetson, x86_64 real-time Linux), Python (Nvidia Jetson, x86_64 real-time Linux)"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: ROS, stationary robots (Franka Panda), mobile robots (Turtlebot, Jetbot)"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Basics: FPGA programming"));
-
-            PRET(processor_print(a, c, ES_LARGER, NULL, "Technical Skills"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: Soldering, PCB debugging"));
-
-            PRET(processor_print(a, c, ES_LARGER, NULL, "Languages"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Native: Ukrainian, Russian"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Fluent (C1): English, German"));
-
-            PRET(processor_print(a, c, ES_LARGER, NULL, "Awards"));
-            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Bronze Medal, International Physics Olympiad (IPhO), 2017"));
-        }
-        else
         {
             PRET(processor_print(a, c, ES_NORMAL, NULL, "Geboren am: 08.10.2000"));
 
@@ -674,7 +709,77 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
             PRET(processor_print(a, c, ES_LARGER, NULL, "Auszeichnungen"));
             PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Bronzemedaille bei der Internationalen Physikolympiade (IPhO), 2017"));
         }
-        PRET(processor_generic_footer(a, c, "/resume"));
+        else
+        {
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Date of Birth: 08.10.2000"));
+
+            PRET(processor_print(a, c, ES_LARGER, NULL, "Education"));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Computational Engineering (CE) M.Sc."));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "At TU Darmstadt"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Specialization: Computational Robotics"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 04.2023 - 12.2025"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Final Grade: 2.1"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Grade: 1.7"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Topic: Adding spatial awareness to embedding-based anomaly detection methods for automated industrial inspection"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis result: Developed an anomaly detection method with 95%% accuracy by combining classical algorithms with foundation models (Python, PyTorch, Transformers)."));
+
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Computational Engineering Science (CES) B.Sc."));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "At RWTH Aachen University"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 10.2018 - 04.2023"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Final Grade: 2.4"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Grade: 1.7"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis Topic: Balancing a 2D inverted pendulum with a Franka Panda robotic arm"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Thesis result: Developed inverse kinematics, inverse dynamics, and control algorithms that enabled the robot to balance a 2-DOF inverse pendulum (ROS, C++, Python)."));
+
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "High School"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "At Studienkolleg at Free University Berlin, Technical Course"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 09.2017 - 09.2018"));
+
+            PRET(processor_print(a, c, ES_LARGER, NULL, "Professional Experience"));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Student Assistant"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "At Goethe University Frankfurt (Buchmann Institute for Molecular Life Sciences, BMLS)"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 06.2023 - 07.2024"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Key achievements:"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Developed graphical slicing software with support for features unique to a bio-3D-printer (C#, C++, Slic3r)."));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Ported printer control software to new hardware (C++, Arduino)."));
+
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Intern"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "At Continental AG"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 03.2022 - 05.2022"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Key achievements:"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Developed a tool for generation of C code from CAN database (Python, C, CAPL)."));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Automated the software build process for a V850 microcontroller (CMake, Python)."));
+            
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Student Assistant"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "At RWTH Aachen University (Institute for Data Science in Mechanical Engineering, DSME)"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Duration: 04.2021 - 12.2021"));
+            PRET(processor_print(a, c, ES_NORMAL, NULL, "Key achievements:"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Implemented high-level APIs and developed control algorithms for a Franka Panda robotic arm (real-time Linux, C++, Python)."));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Implemented a standalone (non-ROS) software simulator for the robot (C++, Gazebo)."));
+
+            PRET(processor_print(a, c, ES_LARGER, NULL, "IT Skills"));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Software Development"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Expert: C, C++, Python, CMake"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: Matlab/Simulink, PyTorch, Git, Linux, LaTeX"));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Hardware Development"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: KiCAD, FreeCAD"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Basics: Autodesk Inventor"));
+            PRET(processor_print(a, c, ES_LARGE,  NULL, "Embedded Development"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Expert: C/C++ (Atmel AVR, ARM, Raspberry Pi, Nvidia Jetson, x86_64 real-time Linux), Python (Nvidia Jetson, x86_64 real-time Linux)"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: ROS, stationary robots (Franka Panda), mobile robots (Turtlebot, Jetbot)"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Basics: FPGA programming"));
+
+            PRET(processor_print(a, c, ES_LARGER, NULL, "Technical Skills"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Advanced: Soldering, PCB debugging"));
+
+            PRET(processor_print(a, c, ES_LARGER, NULL, "Languages"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Native: Ukrainian, Russian"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Fluent (C1): English, German"));
+
+            PRET(processor_print(a, c, ES_LARGER, NULL, "Awards"));
+            PRET(processor_print(a, c, ES_ITEMIZE,NULL, "Bronze Medal, International Physics Olympiad (IPhO), 2017"));
+        }
+        PRET(processor_generic_footer(a, c, "resume"));
         PRET(processor_print(a, c, ES_FINALIZE, NULL, NULL));
     }
     else *invalid_resource = true;

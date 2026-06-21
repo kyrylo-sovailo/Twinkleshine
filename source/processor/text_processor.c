@@ -2,6 +2,7 @@
 #include "../../commonlib/include/error.h"
 #include "../../commonlib/include/string.h"
 #include "../../include/constants.h"
+#include "../../include/language.h"
 #include "../../include/macro.h"
 #include "../../include/parser.h"
 #include "../../include/ring.h"
@@ -73,13 +74,14 @@ struct Error *processor_print_text(struct ProcessorPrintContext *context, enum E
         break;
 
     case ES_INTERNAL_REFERENCE: /* Overload, different protocol */
-        PRET(string_print_append(context->one, "=> text://" DOMAIN_NAME TEXT_PORT_STRING "/%s ", resource));
+        PRET(string_print_append(context->one, "=> text://" DOMAIN_NAME TEXT_PORT_STRING "/%s%s ", 
+            resource, language_slash(context->language, context->requested_language, context->request->language)));
         PRET(string_vprint_append(context->one, format, va));
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
         break;
 
     default: /* Inherit */
-        PRET(processor_print_gemini(context, style, resource, format, va));
+        PRET(processor_print_nex(context, style, resource, format, va));
         break;
     }
     return OK;

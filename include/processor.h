@@ -54,7 +54,8 @@ struct ProcessorPrintContext
     /* Pretty text formatting */
     enum EntryStyle previous_style;
     unsigned int list_index;
-    char language, reference_language;
+    char language;          /* Actual language of the page, always defined */
+    char requested_language;/* Explicitly requested language (request->language contains implicitly requested language) */
 
     /* Message-based stuff */
     unsigned int first_chunk, chunk_number;

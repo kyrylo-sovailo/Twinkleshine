@@ -240,8 +240,13 @@ struct Error *processor_print_http(struct ProcessorPrintContext *context, enum E
     case ES_LARGER: PRET(string_append_mem(context->two, STRING_STRLEN("<h2>" ENDLINE "<p>"))); break;
     case ES_LARGEST: PRET(string_append_mem(context->two, STRING_STRLEN("<h1>" ENDLINE "<p>"))); break;
     case ES_HEADER: PRET(string_append_mem(context->two, STRING_STRLEN("<header>" ENDLINE "<h1>"))); break;
-    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->two, "<a href=\"/%s%s\">", resource, language_question(context->reference_language))); break;
-    case ES_EXTERNAL_REFERENCE: PRET(string_print_append(context->two, "<a href=\"%s\">", resource)); break;
+    case ES_INTERNAL_REFERENCE:
+        PRET(string_print_append(context->two, "<a href=\"/%s%s\">",
+            resource, language_question(context->language, context->requested_language, context->request->language)));
+        break;
+    default: /* ES_EXTERNAL_REFERENCE */
+        PRET(string_print_append(context->two, "<a href=\"%s\">", resource));
+        break;
     }
     
     /* Text */

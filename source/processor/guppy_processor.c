@@ -120,7 +120,8 @@ struct Error *processor_print_guppy(struct ProcessorPrintContext *context, enum 
         break;
 
     case ES_INTERNAL_REFERENCE: /* Overload, different protocol */
-        PRET(string_print_append(context->one, "=> guppy://" DOMAIN_NAME GUPPY_PORT_STRING "/%s%s ", resource, language_question(context->reference_language)));
+        PRET(string_print_append(context->one, "=> guppy://" DOMAIN_NAME GUPPY_PORT_STRING "/%s%s ",
+            resource, language_question(context->language, context->requested_language, context->request->language)));
         PRET(string_vprint_append(context->one, format, va));
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
         break;

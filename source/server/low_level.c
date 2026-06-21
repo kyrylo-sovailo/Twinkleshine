@@ -39,7 +39,7 @@ struct Error *server_send_stream(struct ConstantValue *stream, int fd, enum Conn
 struct ExError server_send_message(struct ConstantValue *message, int fd, const struct sockaddr *address, unsigned int first_chunk, union Value *chunks, size_t last_chunk_size)
 {
     const struct ExError EXOK = { OK };
-    const socklen_t address_size = (address->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    const socklen_t address_size = (address == NULL || address->sa_family == AF_INET6) ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
     const unsigned int chunk_number = (unsigned int)value_size(&chunks->c);
     const unsigned int last_chunk = first_chunk + chunk_number - 1;
     const unsigned int second_last_chunk = first_chunk + chunk_number - 2;

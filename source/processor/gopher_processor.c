@@ -70,7 +70,7 @@ struct Error *processor_print_gopher(struct ProcessorPrintContext *context, enum
 {
     /* Pre-prefix */
     size_t old_size;
-    if (processor_generic_paragraph(style) || processor_generic_paragraph(context->previous_style))
+    if ((processor_generic_paragraph(style) || processor_generic_paragraph(context->previous_style)) && style != ES_FINALIZE && context->previous_style != ES_INITIALIZE)
     {
         PRET(string_append_mem(context->one, STRING_STRLEN("i" FAKE_ENDLINE)));
     }
@@ -103,12 +103,13 @@ struct Error *processor_print_gopher(struct ProcessorPrintContext *context, enum
         break;
     case ES_LARGEST:
     case ES_HEADER:
-        PRET(string_append_mem(context->one, STRING_STRLEN(FAKE_ENDLINE)));
+        PRET(string_append_mem(context->one, STRING_STRLEN(" O" FAKE_ENDLINE)));
         processor_generic_upper_case(context->one, old_size, sizeof("i")-1, sizeof(FAKE_ENDLINE)-1);
         PRET(processor_generic_box(context->one, old_size, sizeof("i")-1, sizeof(FAKE_ENDLINE)-1, 'O', '0'));
         break;
     case ES_INTERNAL_REFERENCE:
-        PRET(string_print_append(context->one, "\t%s%s\t" DOMAIN_NAME "\t" STRINGIZE(GOPHER_PORT) ENDLINE, resource, language_slash(context->reference_language)));
+        PRET(string_print_append(context->one, "\t%s%s\t" DOMAIN_NAME "\t" STRINGIZE(GOPHER_PORT) ENDLINE,
+            resource, language_slash(context->language, context->requested_language, context->request->language)));
         break;
     case ES_EXTERNAL_REFERENCE:
         PRET(string_print_append(context->one, ": %s" FAKE_ENDLINE, resource));

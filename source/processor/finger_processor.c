@@ -68,7 +68,7 @@ struct Error *processor_print_finger(struct ProcessorPrintContext *context, enum
 {
     /* Pre-prefix */
     size_t old_size;
-    if (processor_generic_paragraph(style) || processor_generic_paragraph(context->previous_style))
+    if ((processor_generic_paragraph(style) || processor_generic_paragraph(context->previous_style)) && style != ES_FINALIZE && context->previous_style != ES_INITIALIZE)
     {
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
     }
@@ -100,12 +100,13 @@ struct Error *processor_print_finger(struct ProcessorPrintContext *context, enum
         break;
     case ES_LARGEST:
     case ES_HEADER:
-        PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
+        PRET(string_append_mem(context->one, STRING_STRLEN(" #" ENDLINE)));
         processor_generic_upper_case(context->one, old_size, sizeof("# ")-1, sizeof(ENDLINE)-1);
         PRET(processor_generic_box(context->one, old_size, sizeof("# ")-1, sizeof(ENDLINE)-1, '#', '#'));
         break;
     case ES_INTERNAL_REFERENCE:
-        PRET(string_print_append(context->one, ": finger://" DOMAIN_NAME FINGER_PORT_STRING "/%s%s" ENDLINE, resource, language_slash(context->reference_language)));
+        PRET(string_print_append(context->one, ": finger://" DOMAIN_NAME FINGER_PORT_STRING "/%s%s" ENDLINE,
+            resource, language_slash(context->language, context->requested_language, context->request->language)));
         break;
     case ES_EXTERNAL_REFERENCE:
         PRET(string_print_append(context->one, ": %s" ENDLINE, resource));

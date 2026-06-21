@@ -61,9 +61,9 @@ static char parser_parse_http_language(const struct ConstantValue *accept_langua
                 else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '*')
                 {
                     language[0] = (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
-                    language[1] = '\0';
+                    memset(language + 1, '\0', MAX_LANGUAGE_SIZE - 1);
                     language_size = 1;
-                    q = 0.0;
+                    q = 1.0;
                     q_multiplier = -1.0;
                     state = LPS_WAIT_LANGUAGE_FIRST_CHARACTERS;
                 }
@@ -133,6 +133,7 @@ static char parser_parse_http_language(const struct ConstantValue *accept_langua
                 }
                 else if (c == '=')
                 {
+                    q = 0.0;
                     state = LPS_WAIT_NUMBER;
                 }
                 else return best_language;
@@ -163,7 +164,7 @@ static char parser_parse_http_language(const struct ConstantValue *accept_langua
         }
     }
 
-    if (state == LPS_WAIT_NUMBER)
+    if (state != LPS_WAIT_LANGUAGE_BEGIN)
     {
         parser_parse_http_language_commit(language, language_size, q, &best_language, &best_q);
     }
