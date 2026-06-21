@@ -1,17 +1,12 @@
 #include "../../include/parser.h"
 #include "../../commonlib/include/error.h"
+#include "../../include/macro.h"
 #include "../../include/tables.h"
 
-static struct ExError parser_parse_gemini_guppy(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream, bool mode_guppy)
+static struct ExError parser_parse_gemini_like(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream, const char *protocol, unsigned char protocol_size)
 {
     const struct ExError EXOK = { OK };
     const char *p;
-    const char gemini[] = "gemini://";
-    const char guppy[] = "guppy://";
-    const char *gemini_guppy = mode_guppy ? guppy : gemini;
-    const unsigned char gemini_size = sizeof(gemini) - 1;
-    const unsigned char guppy_size = sizeof(guppy) - 1;
-    const unsigned char gemini_guppy_size = mode_guppy ? guppy_size : gemini_size;
     if (parser->state == RPS_BEGIN) parser->state = RPS_WAIT_PROTOCOL_END;
     for (p = request_stream->p; p < request_stream->p + request_stream->size; p++, request->stream_size++)
     {
@@ -20,10 +15,10 @@ static struct ExError parser_parse_gemini_guppy(struct Parser *parser, struct Re
         switch (parser->state)
         {
         case RPS_WAIT_PROTOCOL_END:
-            if (c == gemini_guppy[request->protocol.size])
+            if (c == protocol[request->protocol.size])
             {
                 request->protocol.size++;
-                if (request->protocol.size == gemini_guppy_size) { request->method.offset = gemini_guppy_size; parser->state = RPS_WAIT_METHOD_END; }
+                if (request->protocol.size == protocol_size) { request->method.offset = protocol_size; parser->state = RPS_WAIT_METHOD_END; }
             }
             else EXRET1("Invalid symbol: %d", (int)c, EEF_SEND_SHUTDOWN_LOG(FR_REQUEST_INVALID));
             break;
@@ -59,13 +54,20 @@ static struct ExError parser_parse_gemini_guppy(struct Parser *parser, struct Re
 struct ExError parser_parse_gemini(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream)
 {
     const struct ExError EXOK = { OK };
-    EXPRET(parser_parse_gemini_guppy(parser, request, request_stream, false));
+    EXPRET(parser_parse_gemini_like(parser, request, request_stream, STRING_STRLEN("gemini://")));
     return EXOK;
 }
 
 struct ExError parser_parse_guppy(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream)
 {
     const struct ExError EXOK = { OK };
-    EXPRET(parser_parse_gemini_guppy(parser, request, request_stream, true));
+    EXPRET(parser_parse_gemini_like(parser, request, request_stream, STRING_STRLEN("guppy://")));
+    return EXOK;
+}
+
+struct ExError parser_parse_text(struct Parser *parser, struct Request *request, const struct ConstantContinuousValue *request_stream)
+{
+    const struct ExError EXOK = { OK };
+    EXPRET(parser_parse_gemini_like(parser, request, request_stream, STRING_STRLEN("text://")));
     return EXOK;
 }
