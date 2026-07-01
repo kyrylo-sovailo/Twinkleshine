@@ -191,10 +191,60 @@ bool processor_generic_paragraph(enum EntryStyle style)
 
 void processor_generic_upper_case(struct CharBuffer *string, size_t old_string_size, size_t prefix_size, size_t suffix_size)
 {
-    char *p;
-    for (p = string->p + old_string_size + prefix_size; p < string->p + string->size - suffix_size; p++)
+    unsigned char byte0 = 0;
+    unsigned char *p;
+    for (p = (unsigned char*)string->p + old_string_size + prefix_size; p < (unsigned char*)string->p + string->size - suffix_size; p++)
     {
-        if (*p >= 'a' && *p <= 'z') *p -= (char)('a' - 'A');
+        if ((*p & 0x80) == 0x00)
+        {
+            /* ASCII */
+            if (*p >= 'a' && *p <= 'z') *p -= (char)('a' - 'A');
+            byte0 = 0;
+        }
+        else if ((*p & 0xE0) == 0xC0)
+        {
+            /* Continuation byte */
+            if (byte0 == 0xC3)
+            {
+                /* Latin 1 */
+                if (*p >= 0xA0 && *p != 0xB7 && *p != 0xBF) { *p -= 0x20; }
+            }
+            else if (byte0 == 0xD0)
+            {
+                /* Cyrillic */
+                if (*p >= 0xB0) { *p -= 0x20; } /* line 4 */
+            }
+            else if (byte0 == 0xD1)
+            {
+                /* Cyrillic */
+                if (*p <= 0x8F) { *p += 0x20; *(p-1) = 0xD0; } /* line 5 */
+                else if (*p <= 0x9F) { *p -= 0x10; *(p-1) = 0xD0; } /* line 6 */
+                else { *p &= 0xFE; } /* lines 7, 8 */
+            }
+            else if (byte0 == 0xD2)
+            {
+                /* Cyrillic */
+                { *p &= 0xFE; } /* lines 9, 10, 11, 12 */
+            }
+            else if (byte0 == 0xD3)
+            {
+                /* Cyrillic */
+                if (*p >= 0x81 && *p <= 0x8E && (*p)%2==0) { *p -= 0x01;  } /* line 13 */
+                else if (*p == 0x8F) { *p = 0x80;   } /* line 13 */
+                else if (*p >= 0x90) { *p &= 0xFE; } /* lines 14, 15, 16 */
+            }
+            byte0 = 0;
+        }
+        else if ((*p & 0xC0) == 0x80)
+        {
+            /* First byte of two */
+            byte0 = *p;
+        }
+        else
+        {
+            /* First byte of three or four */
+            byte0 = 0;
+        }
     }
 }
 
