@@ -3,6 +3,7 @@
 #include "../../include/constants.h"
 #include "../../include/cryptography.h"
 #include "../../include/memory.h"
+#include "../../include/utility.h"
 
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -192,7 +193,7 @@ static struct Error *server_accept_message(struct ClientBuffer *clients, struct 
     }
     else
     {
-        ARET0(errno == EAGAIN || errno == EWOULDBLOCK, "recvfrom() failed");
+        ARET1(errno == EAGAIN || errno == EWOULDBLOCK, "recvfrom() failed with %s", string_errno());
     }
     return OK;
 }

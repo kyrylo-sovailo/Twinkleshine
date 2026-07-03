@@ -2,6 +2,7 @@
 #include "../../commonlib/include/error.h"
 #include "../../include/constants.h"
 #include "../../include/ring.h"
+#include "../../include/utility.h"
 #include "../../include/value.h"
 
 #include <arpa/inet.h>
@@ -28,7 +29,7 @@ struct Error *server_send_stream(struct ConstantValue *stream, int fd, enum Conn
         }
         else
         {
-            ARET0(errno == EAGAIN || errno == EWOULDBLOCK, "send() failed");
+            ARET1(errno == EAGAIN || errno == EWOULDBLOCK, "send() failed with %s", string_errno());
             *flags |= CF_SATURATED;
             break;
         }
@@ -101,7 +102,7 @@ struct ExError server_receive_stream(struct Ring *stream, int fd, size_t size, e
         }
         else
         {
-            EXARET0(errno == EAGAIN || errno == EWOULDBLOCK, "read() failed", EEF_CLOSE_LOG);
+            EXARET1(errno == EAGAIN || errno == EWOULDBLOCK, "read() failed with %s", string_errno(), EEF_CLOSE_LOG);
             *flags |= CF_EXHAUSTED;
             break;
         }

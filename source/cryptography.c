@@ -2,6 +2,7 @@
 #include "../commonlib/include/error.h"
 #include "../include/client.h"
 #include "../include/constants.h"
+#include "../include/utility.h"
 
 #include <openssl/bio.h>
 #include <openssl/err.h>
@@ -63,7 +64,9 @@ static struct ExError cryptography_pump_to_ring(SSL *ssl, BIO *write_bio, struct
             else if (ssl != NULL)
             {
                 const int error = SSL_get_error(ssl, signed_received);
-                EXARET0(error == SSL_ERROR_ZERO_RETURN || error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_read() failed", EEF_CLOSE_LOG);
+                EXARET2(error == SSL_ERROR_ZERO_RETURN || error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE,
+                    "SSL_read() failed with %s, %s", string_ssl_error(error), string_ssl_reason(),
+                    EEF_CLOSE_LOG);
                 if (error == SSL_ERROR_ZERO_RETURN) *connection_closed = true;
                 goto breakbreak;
             }
@@ -100,11 +103,16 @@ struct Error *cryptography_module_initialize(void)
     OpenSSL_add_ssl_algorithms();
     g_cryptography_context = SSL_CTX_new(TLS_server_method());
     ARET0(g_cryptography_context != NULL, "SSL_CTX_new() failed");
-    ARET0(SSL_CTX_set_min_proto_version(g_cryptography_context, TLS1_2_VERSION) == 1, "SSL_CTX_set_min_proto_version() failed");
-    ARET0(SSL_CTX_set_max_proto_version(g_cryptography_context, TLS1_3_VERSION) == 1, "SSL_CTX_set_max_proto_version() failed");
-    ARET0(SSL_CTX_use_PrivateKey_file(g_cryptography_context, KEY_FILE, SSL_FILETYPE_PEM) == 1, "SSL_CTX_use_PrivateKey_file() failed");
-    ARET0(SSL_CTX_use_certificate_file(g_cryptography_context, CERTIFICATE_FILE, SSL_FILETYPE_PEM) == 1, "SSL_CTX_use_certificate_file() failed");
-    ARET0(SSL_CTX_check_private_key(g_cryptography_context) == 1, "SSL_CTX_check_private_key() failed");
+    ARET1(SSL_CTX_set_min_proto_version(g_cryptography_context, TLS1_2_VERSION) == 1,
+        "SSL_CTX_set_min_proto_version() failed with %s", string_ssl_reason());
+    ARET1(SSL_CTX_set_max_proto_version(g_cryptography_context, TLS1_3_VERSION) == 1,
+        "SSL_CTX_set_max_proto_version() failed with %s", string_ssl_reason());
+    ARET1(SSL_CTX_use_PrivateKey_file(g_cryptography_context, KEY_FILE, SSL_FILETYPE_PEM) == 1,
+        "SSL_CTX_use_PrivateKey_file() failed with %s", string_ssl_reason());
+    ARET1(SSL_CTX_use_certificate_file(g_cryptography_context, CERTIFICATE_FILE, SSL_FILETYPE_PEM) == 1,
+        "SSL_CTX_use_certificate_file() failed with %s", string_ssl_reason());
+    ARET1(SSL_CTX_check_private_key(g_cryptography_context) == 1,
+        "SSL_CTX_check_private_key() failed with %s", string_ssl_reason());
     /* SSL_CTX_set_info_callback(g_cryptography_context, cryptography_callback); */
     return OK;
 }
@@ -161,7 +169,9 @@ struct ExError cryptography_finalize(struct Client *client)
         if (code < 0)
         {
             const int error = SSL_get_error(client->ssl, code);
-            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_shutdown() failed", EEF_CLOSE_LOG);
+            EXARET2(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE,
+                    "SSL_shutdown() failed with %s, %s", string_ssl_error(error), string_ssl_reason(),
+                    EEF_CLOSE_LOG);
         }
 
         old_stream_size = client->response_stream.size;
@@ -187,7 +197,9 @@ struct ExError cryptography_decrypt(struct Client *client, size_t old_request_st
     for (i = 0; i < VALUE_PARTS; i++)
     {
         if (value.m.parts[i].size == 0) continue;
-        EXARET0(BIO_write(client->read_bio, value.m.parts[i].p, (int)value.m.parts[i].size) == (int)value.m.parts[i].size, "BIO_write() failed", EEF_CLOSE_LOG);
+        EXARET1(BIO_write(client->read_bio, value.m.parts[i].p, (int)value.m.parts[i].size) == (int)value.m.parts[i].size,
+            "BIO_write() failed with %s", string_ssl_reason(),
+            EEF_CLOSE_LOG);
     }
     EXPRETF(ring_unpush(&client->request_stream, location.size), EEF_CLOSE_LOG_DIE);
 
@@ -200,7 +212,9 @@ struct ExError cryptography_decrypt(struct Client *client, size_t old_request_st
         if (code < 0)
         {
             const int error = SSL_get_error(client->ssl, code);
-            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_accept() failed", EEF_CLOSE_LOG);
+            EXARET2(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE,
+                    "SSL_accept() failed with %s, %s", string_ssl_error(error), string_ssl_reason(),
+                    EEF_CLOSE_LOG);
         }
     }
     if (client->cryptography_state == CS_OPERATIONAL)
@@ -217,7 +231,9 @@ struct ExError cryptography_decrypt(struct Client *client, size_t old_request_st
         if (code < 0)
         {
             const int error = SSL_get_error(client->ssl, code);
-            EXARET0(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE, "SSL_shutdown() failed", EEF_CLOSE_LOG);
+            EXARET2(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE,
+                    "SSL_shutdown() failed with %s, %s", string_ssl_error(error), string_ssl_reason(),
+                    EEF_CLOSE_LOG);
         }
     }
 
@@ -240,8 +256,12 @@ struct ExError cryptography_encrypt(struct Client *client, const struct Response
     /* Encrypt data and place it in response_stream */
     for (i = 0; i < VALUE_PARTS; i++)
     {
+        int code;
         if (response_stream->parts[i].size == 0) continue;
-        EXARET0(SSL_write(client->ssl, response_stream->parts[i].p, (int)response_stream->parts[i].size) == (int)response_stream->parts[i].size, "BIO_write() failed", EEF_CLOSE_LOG);
+        code = SSL_write(client->ssl, response_stream->parts[i].p, (int)response_stream->parts[i].size);
+        EXARET2(code == (int)response_stream->parts[i].size,
+                "SSL_write() failed with %s, %s", string_ssl_error(SSL_get_error(client->ssl, code)), string_ssl_reason(),
+                EEF_CLOSE_LOG);
     }
     old_stream_size = client->response_stream.size;
     EXPRET(cryptography_pump_to_ring(NULL, client->write_bio, &client->response_stream, NULL)); /* No silent request because  */

@@ -60,8 +60,11 @@ struct ExError exerror_internal_allocate_append_extend(struct Error *error, enum
 #define EXRET1(FORMAT, A, FLAGS) { return exerror_internal_allocate(FLAGS, ERROR_FORMAT_F(FORMAT), A); }
 #define EXAGOTO(EXPRESSION, FLAGS) { const bool check = EXPRESSION; if (check) {} else { exerror = exerror_internal_allocate(FLAGS, ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
 #define EXAGOTO0(EXPRESSION, FORMAT, FLAGS) { const bool check = EXPRESSION; if (check) {} else { exerror = exerror_internal_allocate(FLAGS, ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); goto failure; } }
+#define EXAGOTO1(EXPRESSION, FORMAT, A, FLAGS) { const bool check = EXPRESSION; if (check) {} else { exerror = exerror_internal_allocate(FLAGS, ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); goto failure; } }
 #define EXARET(EXPRESSION, FLAGS) { const bool check = EXPRESSION; if (check) {} else return exerror_internal_allocate(FLAGS, ERROR_FORMAT_E(#EXPRESSION)); }
 #define EXARET0(EXPRESSION, FORMAT, FLAGS) { const bool check = EXPRESSION; if (check) {} else return exerror_internal_allocate(FLAGS, ERROR_FORMAT_EF(#EXPRESSION, FORMAT)); }
+#define EXARET1(EXPRESSION, FORMAT, A, FLAGS) { const bool check = EXPRESSION; if (check) {} else return exerror_internal_allocate(FLAGS, ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A); }
+#define EXARET2(EXPRESSION, FORMAT, A, B, FLAGS) { const bool check = EXPRESSION; if (check) {} else return exerror_internal_allocate(FLAGS, ERROR_FORMAT_EF(#EXPRESSION, FORMAT), A, B); }
 #define EXPGOTO(EXPRESSION) { struct ExError check = EXPRESSION; if (check.error != OK) { exerror = exerror_internal_allocate_append(check, ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
 #define EXPGOTOF(EXPRESSION, FLAGS) { struct Error *check = EXPRESSION; if (check != OK) { exerror = exerror_internal_allocate_append_extend(check, FLAGS, ERROR_FORMAT_E(#EXPRESSION)); goto failure; } }
 #define EXPRET(EXPRESSION) { struct ExError check = EXPRESSION; if (check.error != OK) return exerror_internal_allocate_append(check, ERROR_FORMAT_E(#EXPRESSION)); }

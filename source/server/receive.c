@@ -3,6 +3,7 @@
 #include "../../include/client.h"
 #include "../../include/constants.h"
 #include "../../include/cryptography.h"
+#include "../../include/utility.h"
 
 #include <sys/ioctl.h>
 
@@ -60,10 +61,10 @@ struct ExError server_receive_traffic(struct Client *client, int fd, time_t now,
     }
 
     /* Get how much data is available and allocate buffer */
-    EXARET0(ioctl(fd, FIONREAD, &signed_available) >= 0, "ioctl() failed", EEF_CLOSE_LOG);
-    EXARET0(signed_available >= 0, "ioctl() failed", EEF_CLOSE_LOG);
+    EXARET1(ioctl(fd, FIONREAD, &signed_available) >= 0, "ioctl() failed with %s", string_errno(), EEF_CLOSE_LOG);
+    EXARET1(signed_available >= 0, "ioctl() failed with %s", string_errno(), EEF_CLOSE_LOG);
     available = (size_t)signed_available;
-    EXARET0(available <= MAX_AVAILABLE_REQUEST_STREAM, "ioctl() failed", EEF_SEND_CLOSE_LOG(FR_MAX_AVAILABLE_REQUEST_STREAM));
+    EXARET0(available <= MAX_AVAILABLE_REQUEST_STREAM, "Too much data received", EEF_SEND_CLOSE_LOG(FR_MAX_AVAILABLE_REQUEST_STREAM));
     if (available < MIN_AVAILABLE_REQUEST_STREAM) available = MIN_AVAILABLE_REQUEST_STREAM;
     if (available > MAX_REQUEST_STREAM_SIZE - client->request_stream.size) available = MAX_REQUEST_STREAM_SIZE - client->request_stream.size;
 

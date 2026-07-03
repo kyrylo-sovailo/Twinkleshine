@@ -5,6 +5,7 @@
 #include "../../include/random.h"
 #include "../../include/tables.h"
 #include "../../include/time.h"
+#include "../../include/utility.h"
 
 #include <netinet/in.h>
 
@@ -275,7 +276,7 @@ static struct Error *server_process_clients(struct ClientBuffer *clients, struct
     /* Wait for events */
     poll_begin_clock = *utilization_clock; /* Do not repeat clock() call */
     event_number = poll(polls->p, polls->size, (*remaining == INT_MAX) ? -1 : *remaining * 1000);
-    ARET0(event_number >= 0, "poll() failed");
+    ARET1(event_number >= 0, "poll() failed with %s", string_errno());
     poll_end_clock = clock();
     now = time(NULL);
 

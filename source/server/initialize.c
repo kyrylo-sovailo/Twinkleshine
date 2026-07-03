@@ -3,6 +3,7 @@
 #include "../../include/client.h"
 #include "../../include/constants.h"
 #include "../../include/output.h"
+#include "../../include/utility.h"
 
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -99,7 +100,7 @@ struct Error *server_initialize(struct PollBuffer *polls)
     const char *modes[] = { "IPv6+IPv4", "IPv6*", "IPv6", "IPv4" };
     const char **http_mode, **https_mode, **gopher_mode, **finger_mode, **gemini_mode, **spartan_mode, **nex_mode, **text_mode, **guppy_mode;
 
-    ARET0(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed");
+    ARET1(signal(SIGPIPE, SIG_IGN) != SIG_ERR, "signal() failed with %s", string_errno());
     
     http_mode = &modes[0];
     PRET(server_create_socket_pair(polls, &http_mode, HTTP_PORT, true));
