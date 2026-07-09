@@ -2,7 +2,7 @@
 
 The monolithest monolith that have ever been written.
 
-[Hopefully running instance](https://my8bitsoul.eu.com)
+[Hopefully running instance](https://my8bitsoul.eu)
 
 Implemented protocols:
  - [HTTP(s)](https://datatracker.ietf.org/doc/html/rfc2616)
