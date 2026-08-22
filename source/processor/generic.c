@@ -516,8 +516,6 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         }
         else
         {
-            PRET(processor_print(a, c, ES_HEADER, NULL, "Twinkleshine"));
-            PRET(processor_generic_header(a, c, "twinkleshine"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "This website is powered by the Twinkleshine server."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Twinkleshine is fully written by me in C 89. Its defining feature (apart from being written in C in the year of our Lord 2026) is that it supports not only HTTP(S), but also Gopher, Gemini, and other SmolNet protocols. All protocols are served by one process, pages for different protocols are generated using the exact same logic."));
             PRET(processor_print(a, c, ES_EXTERNAL_REFERENCE, "https://github.com/kyrylo-sovailo/Twinkleshine", "Source code"));

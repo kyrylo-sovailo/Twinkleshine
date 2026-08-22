@@ -167,14 +167,17 @@ const char *string_ssl_error(int error)
     return "UNKNOWN";
 }
 
-const char *string_ssl_reason()
+const char *string_ssl_reason(void)
 {
     const char *string_reason = "UNKNOWN";
     for (;;)
     {
-        unsigned long reason = ERR_get_error();
+        unsigned long reason;
+        const char *string_reason_candidate;
+        reason = ERR_get_error();
         if (reason == 0) break;
-        string_reason = ERR_reason_error_string(reason);
+        string_reason_candidate = ERR_reason_error_string(reason);
+        if (string_reason_candidate != NULL) string_reason = string_reason_candidate;
     }
     return string_reason;
 }

@@ -36,7 +36,7 @@ static struct Error *server_pop_responses(struct Client *client, time_t now, siz
         if (sent_stream_size >= client->response.stream_size)
         {
             /* Sent */
-            PRET(server_pop_response(client));
+            PRET(server_pop_response(client)); /* TODO: Known to cause panic */
             client->last_response_complete = now;
             client->response_count--;
             sent_stream_size -= client->response.stream_size;
