@@ -80,8 +80,9 @@ struct Error *processor_print_gemini(struct ProcessorPrintContext *context, enum
     case ES_LARGER: PRET(string_append_mem(context->one, STRING_STRLEN("## "))); break;
     case ES_LARGEST:
     case ES_HEADER: PRET(string_append_mem(context->one, STRING_STRLEN("# "))); break;
-    case ES_INTERNAL_REFERENCE: PRET(string_print_append(context->one, "=> gemini://" DOMAIN_NAME GEMINI_PORT_STRING "/%s%s ",
-        resource, language_question(context->language, context->requested_language, context->request->language)));
+    case ES_INTERNAL_REFERENCE:
+        PRET(string_print_append(context->one, "=> gemini://" DOMAIN_NAME GEMINI_PORT_STRING "/%s%s ",
+            resource, language_question(context->language, context->requested_language, context->request->language)));
         break;
     default: /* ES_EXTERNAL_REFERENCE */
         PRET(string_print_append(context->one, "=> %s ", resource));

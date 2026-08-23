@@ -54,7 +54,6 @@ void processor_fixed_nex_failsafe(enum FixedResponse fixed,
 struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum EntryStyle style, const char *resource, const char *format, va_list va)
 {
     /* Pre-prefix */
-    const char *language;
     size_t old_size;
     if ((processor_generic_paragraph(style) || processor_generic_paragraph(context->previous_style)) && style != ES_FINALIZE && context->previous_style != ES_INITIALIZE)
     {
@@ -77,9 +76,8 @@ struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum En
     case ES_LARGEST:
     case ES_HEADER: PRET(string_append_mem(context->one, STRING_STRLEN("# "))); break;
     case ES_INTERNAL_REFERENCE:
-        language = language_slash(context->language, context->requested_language, context->request->language);
-        if (resource[0] == '\0') { PRET(string_print_append(context->one, "=> %s/ ", language)); }
-        else { PRET(string_print_append(context->one, "=> /%s%s/ ", resource, language)); }
+        PRET(string_print_append(context->one, "=> %s%s%s/ ",
+            (*resource != '\0') ? "/" : "", resource, language_slash(context->language, context->requested_language, context->request->language)));
         break;
     default: /* ES_EXTERNAL_REFERENCE */
         PRET(string_print_append(context->one, "=> %s ", resource));
@@ -105,8 +103,8 @@ struct Error *processor_print_nex(struct ProcessorPrintContext *context, enum En
     case ES_LARGEST:
     case ES_HEADER:
         PRET(string_append_mem(context->one, STRING_STRLEN(" #" ENDLINE)));
-        processor_generic_upper_case(context->one, old_size, 0, sizeof(ENDLINE)-1);
-        PRET(processor_generic_box(context->one, old_size, 0, sizeof(ENDLINE)-1, '#', '#'));
+        processor_generic_upper_case(context->one, old_size, sizeof("# ")-1, sizeof(" #" ENDLINE)-1);
+        PRET(processor_generic_box(context->one, old_size, sizeof("#")-1, sizeof("#" ENDLINE)-1, '#', '#'));
         break;
     default:
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));

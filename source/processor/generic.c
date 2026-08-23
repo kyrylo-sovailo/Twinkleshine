@@ -686,6 +686,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
         /* Resume */
         PRET(processor_print(a, c, ES_INITIALIZE, NULL, NULL));
         PRET(processor_print(a, c, ES_HEADER, NULL, "Kyrylo Sovailo"));
+        PRET(processor_generic_header(a, c, "resume"));
         PRET(processor_generic_contact(a, c));
         if (c->language == 'd')
         {

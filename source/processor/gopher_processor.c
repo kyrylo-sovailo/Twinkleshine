@@ -104,7 +104,7 @@ struct Error *processor_print_gopher(struct ProcessorPrintContext *context, enum
     case ES_LARGEST:
     case ES_HEADER:
         PRET(string_append_mem(context->one, STRING_STRLEN(" O" FAKE_ENDLINE)));
-        processor_generic_upper_case(context->one, old_size, sizeof("i")-1, sizeof(FAKE_ENDLINE)-1);
+        processor_generic_upper_case(context->one, old_size, sizeof("iO ")-1, sizeof(" O" FAKE_ENDLINE)-1);
         PRET(processor_generic_box(context->one, old_size, sizeof("i")-1, sizeof(FAKE_ENDLINE)-1, 'O', '0'));
         break;
     case ES_INTERNAL_REFERENCE:

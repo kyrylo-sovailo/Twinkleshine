@@ -74,8 +74,8 @@ struct Error *processor_print_text(struct ProcessorPrintContext *context, enum E
         break;
 
     case ES_INTERNAL_REFERENCE: /* Overload, different protocol */
-        PRET(string_print_append(context->one, "=> text://" DOMAIN_NAME TEXT_PORT_STRING "/%s%s ", 
-            resource, language_slash(context->language, context->requested_language, context->request->language)));
+        PRET(string_print_append(context->one, "=> text://" DOMAIN_NAME TEXT_PORT_STRING "%s%s%s ", 
+            (*resource != '\0') ? "/" : "", resource, language_slash(context->language, context->requested_language, context->request->language)));
         PRET(string_vprint_append(context->one, format, va));
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
         break;

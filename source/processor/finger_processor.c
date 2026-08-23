@@ -96,17 +96,17 @@ struct Error *processor_print_finger(struct ProcessorPrintContext *context, enum
     case ES_LARGE:
     case ES_LARGER:
         PRET(string_append_mem(context->one, STRING_STRLEN(ENDLINE)));
-        processor_generic_upper_case(context->one, old_size, sizeof("# ")-1, sizeof(ENDLINE)-1);
+        processor_generic_upper_case(context->one, old_size, 0, sizeof(ENDLINE)-1);
         break;
     case ES_LARGEST:
     case ES_HEADER:
         PRET(string_append_mem(context->one, STRING_STRLEN(" #" ENDLINE)));
-        processor_generic_upper_case(context->one, old_size, sizeof("# ")-1, sizeof(ENDLINE)-1);
-        PRET(processor_generic_box(context->one, old_size, sizeof("# ")-1, sizeof(ENDLINE)-1, '#', '#'));
+        processor_generic_upper_case(context->one, old_size, sizeof("# ")-1, sizeof(" #" ENDLINE)-1);
+        PRET(processor_generic_box(context->one, old_size, sizeof("#")-1, sizeof("#" ENDLINE)-1, '#', '#'));
         break;
     case ES_INTERNAL_REFERENCE:
-        PRET(string_print_append(context->one, ": finger://" DOMAIN_NAME FINGER_PORT_STRING "/%s%s" ENDLINE,
-            resource, language_slash(context->language, context->requested_language, context->request->language)));
+        PRET(string_print_append(context->one, ": finger://" DOMAIN_NAME FINGER_PORT_STRING "%s%s%s" ENDLINE,
+            (*resource != '\0') ? "/" : "", resource, language_slash(context->language, context->requested_language, context->request->language)));
         break;
     case ES_EXTERNAL_REFERENCE:
         PRET(string_print_append(context->one, ": %s" ENDLINE, resource));
