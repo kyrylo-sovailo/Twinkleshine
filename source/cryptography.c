@@ -159,6 +159,7 @@ struct ExError cryptography_initialize(struct Client *client)
 struct ExError cryptography_finalize(struct Client *client)
 {
     const struct ExError EXOK = { OK };
+    struct ExError exerror;
     size_t old_stream_size, new_stream_size, encrypted_value_size;
     if (client->cryptography_state != CS_SHUTDOWN)
     {
@@ -169,18 +170,26 @@ struct ExError cryptography_finalize(struct Client *client)
         if (code < 0)
         {
             const int error = SSL_get_error(client->ssl, code);
-            EXARET2(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE,
+            EXAGOTO2(error == SSL_ERROR_WANT_READ || error == SSL_ERROR_WANT_WRITE,
                     "SSL_shutdown() failed with %s, %s", string_ssl_error(error), string_ssl_reason(),
                     EEF_CLOSE_LOG);
         }
 
         old_stream_size = client->response_stream.size;
-        EXPRET(cryptography_pump_to_ring(NULL, client->write_bio, &client->response_stream, NULL));
+        EXPGOTO(cryptography_pump_to_ring(NULL, client->write_bio, &client->response_stream, NULL));
         new_stream_size = client->response_stream.size;
         encrypted_value_size = new_stream_size - old_stream_size;
-        EXPRET(cryptography_create_silent_response(client, encrypted_value_size));
+        EXPGOTO(cryptography_create_silent_response(client, encrypted_value_size));
     }
-    return EXOK;
+    exerror = EXOK;
+
+    failure:
+    if (client->ssl != NULL)
+    {
+        SSL_free(client->ssl);
+        client->ssl = NULL;
+    }
+    return exerror;
 }
 
 struct ExError cryptography_decrypt(struct Client *client, size_t old_request_stream_size)
