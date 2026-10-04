@@ -469,7 +469,7 @@ struct Error *processor_generic(unsigned char a, struct ProcessorPrintContext *c
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Ich habe vor Kurzem mein Masterstudium in Computational Engineering an der TU Darmstadt abgeschlossen."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Ich mag Programmierung, Elektronik und Ponys."));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Falls Ihr Unternehmen mit einer von drei etwas zu tun hat (idealerweise mit allen dreien) und Sie mich einstellen möchten (bitte tun Sie es), hier ist mein Lebenslauf zu finden:"));
-            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "resume", "Resume"));
+            PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "resume", "Lebenslauf"));
             PRET(processor_print(a, c, ES_PARAGRAPH, NULL, "Einige meiner anderen Projekte sind hier aufgelistet:"));
             PRET(processor_print(a, c, ES_INTERNAL_REFERENCE, "projects", "Projekte"));
         }

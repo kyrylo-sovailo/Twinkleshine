@@ -141,8 +141,8 @@ struct ExError cryptography_initialize(struct Client *client)
     EXAGOTO0(new_ssl != NULL, "SSL_new() failed", EEF_CLOSE_LOG);
     SSL_set_accept_state(new_ssl);
     SSL_set_bio(new_ssl, new_read_bio, new_write_bio);
-    EXPRET(cryptography_pump_to_ring(NULL, new_write_bio, &client->response_stream, NULL));
-    EXPRET(cryptography_create_silent_response(client, client->response_stream.size));
+    EXPGOTO(cryptography_pump_to_ring(NULL, new_write_bio, &client->response_stream, NULL));
+    EXPGOTO(cryptography_create_silent_response(client, client->response_stream.size));
     bound = true;
     client->ssl = new_ssl;
     client->read_bio = new_read_bio;

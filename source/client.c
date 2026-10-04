@@ -4,6 +4,7 @@
 #include "../include/random.h"
 
 #include <netinet/in.h>
+#include <openssl/ssl.h>
 #include <unistd.h>
 
 struct ConstantValue g_short_response_stream = ZERO_INIT;
@@ -64,6 +65,11 @@ void client_finalize(struct Client *client)
         g_short_response_stream = zero;
         g_short_response_stream_owner = NULL;
         processor_free();
+    }
+    if (client->ssl != NULL)
+    {
+        SSL_free(client->ssl); //Not calling cryptography_finalize because it performs shutdown, and we need to free it for sure
+        client->ssl = NULL;
     }
     ring_finalize(&client->request_stream);
     ring_finalize(&client->response_queue);
