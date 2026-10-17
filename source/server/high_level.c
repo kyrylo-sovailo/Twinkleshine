@@ -119,8 +119,8 @@ static struct ExError server_process_client_round(struct Client *client, struct 
         *done_something = true;
         EXPGOTO(server_receive_traffic(client, poll->fd, now, flags));
         if ((*flags & CF_CLOSED) != 0
-        || client->cryptography_state == CS_SHUTDOWN
-        || (client->cryptography_state == CS_PENDING_SHUTDOWN && client_response_stream_size(client) == 0))
+        || (client->cryptography_state == CS_PENDING_SHUTDOWN && client_response_stream_size(client) == 0)
+        || client->cryptography_state == CS_SHUTDOWN)
         {
             /* Client terminated connection or initiated TLS shutdown or completed TLS shutdown */
             /* TODO: In HTTP, client shouldn't terminate "Connection: close" connections */
@@ -165,7 +165,7 @@ static struct ExError server_process_client_round(struct Client *client, struct 
         || (client->ssl != NULL && client->cryptography_state == CS_SHUTDOWN && client_response_stream_size(client) == 0)) /* TODO: am I sure? */
         {
             /* Server should close connection */
-            EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG);
+            EXAGOTO(client->request_stream.size == 0, EEF_CLOSE_LOG); /* TODO: recoverable error? */
             EXAGOTO(client->response_queue.size == 0, EEF_CLOSE_LOG);
             EXAGOTO(client->response_count == 0, EEF_CLOSE_LOG);
             if (ACCEPTING_SOCKET_IS_CONNECTION(client->accepting_socket)) poll_finalize(poll);
@@ -177,7 +177,9 @@ static struct ExError server_process_client_round(struct Client *client, struct 
     return EXOK;
 
     failure:
-    if (client->ssl != NULL && client->cryptography_state != CS_PENDING_SHUTDOWN && (exerror.flags & PARTIAL_EEF_SHUTDOWN) != 0)
+    if (client->ssl != NULL
+    && client->cryptography_state != CS_PENDING_SHUTDOWN && client->cryptography_state != CS_PENDING_SHUTDOWN
+    && (exerror.flags & PARTIAL_EEF_SHUTDOWN) != 0)
     {
         /* Recoverable error, perform shutdown instead of close */
         *done_something = true;

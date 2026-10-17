@@ -59,7 +59,7 @@ void clients_remove_finalized(struct ClientBuffer *clients, struct PollBuffer *p
 void client_finalize(struct Client *client)
 {
     client->dead = true;
-    if (client == g_short_request_message_owner)
+    if (client == g_short_request_message_owner) /* TODO: not response? */
     {
         const struct ConstantValue zero = ZERO_INIT;
         g_short_response_stream = zero;

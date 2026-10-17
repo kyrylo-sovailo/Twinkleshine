@@ -49,7 +49,6 @@ source/server/accept.c
 source/server/high_level.c
 source/server/initialize.c
 source/server/low_level.c
-source/server/main.c
 source/server/process.c
 source/server/receive.c
 source/server/send.c
